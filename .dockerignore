@@ -1,0 +1,10 @@
+node_modules
+server/node_modules
+dist
+src-tauri
+.git
+.vscode
+*.log
+*.bat
+*.exe
+*.dll
