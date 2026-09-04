@@ -154,8 +154,8 @@ app.get("*", (req, res, next) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`\n  ✓ Vetch101 Backend ready → http://localhost:${PORT}\n`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`\n  ✓ Vetch101 Backend ready → http://0.0.0.0:${PORT}\n`);
   try {
     const bins = getBinaries();
     console.log(`  ✓ yt-dlp: ${bins.ytdlp}`);
