@@ -14,6 +14,11 @@ edition = "2021"
 name = "vetch101_lib"
 crate-type = ["staticlib", "rlib"]
 
+[[bin]]
+name = "vetch101"
+path = "src/main.rs"
+test = false
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

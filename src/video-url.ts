@@ -1,7 +1,15 @@
 export function parseVideoUrl(value: string): string {
   const clean = value.trim();
-  if ((clean.split(/[?#]/, 1)[0].match(/https?:\/\//gi) || []).length > 1) {
-    throw new Error("พบลิงก์สองอันต่อกัน กรุณาล้างช่องแล้ววางลิงก์วิดีโอเพียงอันเดียว");
+  if (!clean) {
+    throw new Error("กรุณาระบุลิงก์วิดีโอ");
+  }
+  // Check for concatenated URLs in path or directly appended after video parameter
+  if (
+    (clean.split(/[?#]/, 1)[0].match(/https?:\/\//gi) || []).length > 1 ||
+    /(?:watch\?v=[^&]+|video\/\d+|youtu\.be\/[^?&]+)https?:\/\//i.test(clean) ||
+    /https?:\/\/[^\s]+https?:\/\//i.test(clean.replace(/[?&](?:url|next|redirect|link|dest|target)=https?:\/\/[^&]*/gi, ""))
+  ) {
+    throw new Error("พบลิงก์ซ้อนกัน กรุณาวางลิงก์วิดีโอเพียงอันเดียว");
   }
   try {
     const url = new URL(clean);

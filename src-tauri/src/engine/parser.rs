@@ -3,6 +3,7 @@ use regex::Regex;
 use std::sync::OnceLock;
 
 static RE_STANDARD: OnceLock<Regex> = OnceLock::new();
+static RE_DESTINATION: OnceLock<Regex> = OnceLock::new();
 
 pub fn parse_stdout_line(line: &str) -> Option<DownloadProgressPayload> {
     let trimmed = line.trim();
@@ -10,7 +11,24 @@ pub fn parse_stdout_line(line: &str) -> Option<DownloadProgressPayload> {
         return None;
     }
 
-    // Case 1: Custom template `download: <percent>| <speed>| <eta>| <total_size>`
+    // Case 0: Final destination path marker emitted by yt-dlp --print after_move:FINAL_OUTPUT:%(filepath)s
+    if trimmed.starts_with("FINAL_OUTPUT:") {
+        let path = trimmed["FINAL_OUTPUT:".len()..].trim();
+        let fname = std::path::Path::new(path)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string());
+
+        return Some(DownloadProgressPayload {
+            progress: 100.0,
+            speed: "-".to_string(),
+            eta: "00:00".to_string(),
+            status: "completed".to_string(),
+            message: "บันทึกไฟล์เรียบร้อยแล้ว".to_string(),
+            filename: fname,
+        });
+    }
+
+    // Case 1: Custom template `download: <percent>| <speed>| <eta>`
     if trimmed.starts_with("download:") {
         let content = &trimmed[9..];
         let parts: Vec<&str> = content.split('|').collect();
@@ -38,6 +56,7 @@ pub fn parse_stdout_line(line: &str) -> Option<DownloadProgressPayload> {
                 eta: eta_clean,
                 status: "downloading".to_string(),
                 message: format!("กำลังดาวน์โหลด... {:.1}%", percent),
+                filename: None,
             });
         }
     }
@@ -68,6 +87,7 @@ pub fn parse_stdout_line(line: &str) -> Option<DownloadProgressPayload> {
                 eta,
                 status: "downloading".to_string(),
                 message: format!("กำลังดาวน์โหลด... {:.1}%", percent),
+                filename: None,
             });
         }
 
@@ -77,17 +97,27 @@ pub fn parse_stdout_line(line: &str) -> Option<DownloadProgressPayload> {
                 speed: "-".to_string(),
                 eta: "00:00".to_string(),
                 status: "downloading".to_string(),
-                message: "ดาวน์โหลดเสร็จสิ้น กำลังประมวลผล...".to_string(),
+                message: "ดาวน์โหลดครบแล้ว กำลังจัดเก็บไฟล์...".to_string(),
+                filename: None,
             });
         }
 
         if trimmed.contains("has already been downloaded") {
+            let re_dest = RE_DESTINATION.get_or_init(|| {
+                Regex::new(r"\[download\]\s+(.*?)\s+has already been downloaded").unwrap()
+            });
+            let fname = re_dest
+                .captures(trimmed)
+                .and_then(|c| c.get(1))
+                .map(|m| std::path::Path::new(m.as_str()).file_name().unwrap_or_default().to_string_lossy().to_string());
+
             return Some(DownloadProgressPayload {
                 progress: 100.0,
                 speed: "-".to_string(),
                 eta: "00:00".to_string(),
                 status: "completed".to_string(),
                 message: "ไฟล์นี้เคยดาวน์โหลดไว้แล้ว".to_string(),
+                filename: fname,
             });
         }
     }
@@ -100,6 +130,7 @@ pub fn parse_stdout_line(line: &str) -> Option<DownloadProgressPayload> {
             eta: "-".to_string(),
             status: "merging".to_string(),
             message: "กำลังรวมภาพและเสียงด้วย FFmpeg...".to_string(),
+            filename: None,
         });
     }
 
@@ -110,7 +141,8 @@ pub fn parse_stdout_line(line: &str) -> Option<DownloadProgressPayload> {
             speed: "-".to_string(),
             eta: "-".to_string(),
             status: "merging".to_string(),
-            message: "กำลังแปลงไฟล์เสียง...".to_string(),
+            message: "กำลังแปลงเป็นไฟล์เสียง MP3...".to_string(),
+            filename: None,
         });
     }
 
@@ -123,7 +155,7 @@ mod tests {
 
     #[test]
     fn test_custom_template_parser() {
-        let line = "download:  67.4%|  8.20MiB/s|  00:15|  150.2MiB";
+        let line = "download:  67.4%|  8.20MiB/s|  00:15";
         let parsed = parse_stdout_line(line).expect("Should parse custom template");
         assert!((parsed.progress - 67.4).abs() < 0.01);
         assert_eq!(parsed.speed, "8.20MiB/s");
@@ -146,5 +178,13 @@ mod tests {
         let parsed = parse_stdout_line(line).expect("Should parse merger line");
         assert_eq!(parsed.status, "merging");
         assert!((parsed.progress - 99.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_final_output_parser() {
+        let line = "FINAL_OUTPUT:C:\\Downloads\\video [aqz-KE-bpKQ].mp4";
+        let parsed = parse_stdout_line(line).expect("Should parse final output");
+        assert_eq!(parsed.status, "completed");
+        assert_eq!(parsed.filename, Some("video [aqz-KE-bpKQ].mp4".to_string()));
     }
 }

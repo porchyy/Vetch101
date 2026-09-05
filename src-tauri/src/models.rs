@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub struct QualityOption {
     pub id: String,
     pub label: String,
+    pub ext: String,
     pub format_spec: String,
 }
 
@@ -24,12 +25,17 @@ pub struct DownloadProgressPayload {
     pub eta: String,    // e.g. "00:15"
     pub status: String, // "preparing" | "downloading" | "merging" | "completed" | "cancelled" | "error"
     pub message: String,
+    pub filename: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DependencyStatus {
     pub ytdlp_available: bool,
     pub ffmpeg_available: bool,
+    pub ffprobe_available: bool,
     pub ytdlp_path: Option<String>,
     pub ffmpeg_path: Option<String>,
+    pub ffprobe_path: Option<String>,
+    pub ytdlp_version: Option<String>,
+    pub app_bin_dir: String,
 }

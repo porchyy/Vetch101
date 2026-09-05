@@ -1,4 +1,4 @@
-use crate::engine::detector::get_binaries;
+use crate::engine::detector::{get_binaries, update_ytdlp_tool};
 use crate::engine::downloader::{run_download, DownloadManager};
 use crate::engine::metadata::fetch_video_metadata;
 use crate::models::{DependencyStatus, VideoMetadata};
@@ -11,12 +11,32 @@ pub async fn check_dependencies() -> Result<DependencyStatus, String> {
     let binaries = tokio::task::spawn_blocking(get_binaries)
         .await
         .map_err(|e| e.to_string())?;
+
     Ok(DependencyStatus {
         ytdlp_available: binaries.ytdlp_path.is_some(),
         ffmpeg_available: binaries.ffmpeg_path.is_some(),
+        ffprobe_available: binaries.ffprobe_path.is_some(),
         ytdlp_path: binaries.ytdlp_path,
         ffmpeg_path: binaries.ffmpeg_path,
+        ffprobe_path: binaries.ffprobe_path,
+        ytdlp_version: binaries.ytdlp_version,
+        app_bin_dir: binaries.app_bin_dir.to_string_lossy().to_string(),
     })
+}
+
+#[tauri::command]
+pub async fn update_ytdlp(state: State<'_, Arc<DownloadManager>>) -> Result<String, String> {
+    if state.inner().is_active() {
+        return Err("ไม่สามารถอัปเดตระหว่างมีงานดาวน์โหลดทำงานอยู่ได้".into());
+    }
+
+    let binaries = tokio::task::spawn_blocking(get_binaries)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    tokio::task::spawn_blocking(move || update_ytdlp_tool(&binaries))
+        .await
+        .map_err(|e| format!("Task error: {}", e))?
 }
 
 #[tauri::command]
@@ -40,7 +60,7 @@ pub async fn select_folder(default_dir: Option<String>) -> Result<Option<String>
 #[tauri::command]
 pub fn open_folder(path: String) -> Result<(), String> {
     if !std::path::Path::new(&path).is_dir() {
-        return Err("ไม่พบโฟลเดอร์".into());
+        return Err("ไม่พบโฟลเดอร์ปลายทาง".into());
     }
     open::that(&path).map_err(|e| format!("ไม่สามารถเปิดโฟลเดอร์ {}: {}", path, e))
 }

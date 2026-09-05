@@ -18,10 +18,12 @@ dist-ssr/
 
 # Binaries & Executables
 *.exe
+*.msi
 *.dll
 *.so
 *.dylib
 *.pdb
+dist-desktop/
 
 # Rust / Cargo / Tauri build artifacts
 target/

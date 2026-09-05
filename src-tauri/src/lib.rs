@@ -15,6 +15,7 @@ pub fn run() {
         .manage(download_manager)
         .invoke_handler(tauri::generate_handler![
             check_dependencies,
+            update_ytdlp,
             get_default_download_dir,
             select_folder,
             open_folder,
