@@ -7,14 +7,16 @@ use std::sync::Arc;
 use tauri::{AppHandle, State};
 
 #[tauri::command]
-pub fn check_dependencies() -> DependencyStatus {
-    let binaries = get_binaries();
-    DependencyStatus {
+pub async fn check_dependencies() -> Result<DependencyStatus, String> {
+    let binaries = tokio::task::spawn_blocking(get_binaries)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(DependencyStatus {
         ytdlp_available: binaries.ytdlp_path.is_some(),
         ffmpeg_available: binaries.ffmpeg_path.is_some(),
         ytdlp_path: binaries.ytdlp_path,
         ffmpeg_path: binaries.ffmpeg_path,
-    }
+    })
 }
 
 #[tauri::command]
@@ -37,6 +39,9 @@ pub async fn select_folder(default_dir: Option<String>) -> Result<Option<String>
 
 #[tauri::command]
 pub fn open_folder(path: String) -> Result<(), String> {
+    if !std::path::Path::new(&path).is_dir() {
+        return Err("ไม่พบโฟลเดอร์".into());
+    }
     open::that(&path).map_err(|e| format!("ไม่สามารถเปิดโฟลเดอร์ {}: {}", path, e))
 }
 
@@ -56,10 +61,7 @@ pub async fn start_download(
     download_dir: String,
 ) -> Result<(), String> {
     let manager = state.inner().clone();
-    tokio::spawn(async move {
-        let _ = run_download(app, manager, url, format_spec, download_dir).await;
-    });
-    Ok(())
+    run_download(app, manager, url, format_spec, download_dir).await
 }
 
 #[tauri::command]

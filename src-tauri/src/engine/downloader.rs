@@ -1,53 +1,38 @@
-use crate::engine::detector::get_binaries;
-use crate::engine::parser::parse_stdout_line;
-use crate::models::DownloadProgressPayload;
-use std::path::Path;
-use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use crate::engine::{detector::get_binaries, parser::parse_stdout_line, validate_url};
+use std::{
+    path::Path,
+    process::Stdio,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 use tauri::{AppHandle, Emitter};
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command as TokioCommand;
-use tokio::sync::Mutex;
-
-#[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
+use tokio::{
+    io::{AsyncBufReadExt, BufReader},
+    process::Command,
+    sync::{Mutex, Notify},
+};
 
 pub struct DownloadManager {
-    pub current_pid: Arc<Mutex<Option<u32>>>,
-    pub is_cancelled: Arc<AtomicBool>,
+    running: Mutex<()>,
+    active: AtomicBool,
+    cancelled: Notify,
 }
-
 impl DownloadManager {
     pub fn new() -> Self {
         Self {
-            current_pid: Arc::new(Mutex::new(None)),
-            is_cancelled: Arc::new(AtomicBool::new(false)),
+            running: Mutex::new(()),
+            active: AtomicBool::new(false),
+            cancelled: Notify::new(),
         }
     }
-
     pub async fn cancel(&self) -> Result<(), String> {
-        self.is_cancelled.store(true, Ordering::SeqCst);
-        let mut pid_guard = self.current_pid.lock().await;
-        if let Some(pid) = *pid_guard {
-            // Use taskkill on Windows to terminate process tree (yt-dlp + ffmpeg)
-            #[cfg(target_os = "windows")]
-            {
-                let mut kill_cmd = std::process::Command::new("taskkill");
-                kill_cmd.args(["/F", "/T", "/PID", &pid.to_string()]);
-                #[cfg(target_os = "windows")]
-                {
-                    use std::os::windows::process::CommandExt;
-                    kill_cmd.creation_flags(CREATE_NO_WINDOW);
-                }
-                let _ = kill_cmd.output();
-            }
-
-            *pid_guard = None;
-            Ok(())
-        } else {
-            Err("ไม่มีการดาวน์โหลดที่กำลังทำงานอยู่".to_string())
+        if !self.active.load(Ordering::SeqCst) {
+            return Err("ไม่มีการดาวน์โหลดที่กำลังทำงานอยู่".into());
         }
+        self.cancelled.notify_one();
+        Ok(())
     }
 }
 
@@ -58,135 +43,139 @@ pub async fn run_download(
     format_spec: String,
     download_dir: String,
 ) -> Result<(), String> {
-    manager.is_cancelled.store(false, Ordering::SeqCst);
-
-    let binaries = get_binaries();
-    let ytdlp = binaries.ytdlp_path.ok_or("ไม่พบโปรแกรม yt-dlp ในระบบ")?;
-
-    let output_template = format!("{}/%(title)s.%(ext)s", download_dir.replace('\\', "/"));
-
-    // Ensure output directory exists
-    if !Path::new(&download_dir).exists() {
-        let _ = std::fs::create_dir_all(&download_dir);
+    let _job = manager
+        .running
+        .try_lock()
+        .map_err(|_| "มีงานดาวน์โหลดกำลังทำงานอยู่")?;
+    let url = validate_url(&url)?;
+    if !matches!(
+        format_spec.as_str(),
+        "bestvideo[height<=1080]+bestaudio/best[height<=1080]"
+            | "bestvideo[height<=720]+bestaudio/best[height<=720]"
+            | "bestvideo[height<=480]+bestaudio/best[height<=480]"
+            | "bestvideo+bestaudio/best"
+            | "bestaudio/best"
+            | "best[ext=mp4]"
+    ) {
+        return Err("รูปแบบไฟล์ไม่ถูกต้อง".into());
     }
-
-    let mut cmd = TokioCommand::new(&ytdlp);
-
+    let binaries = tokio::task::spawn_blocking(get_binaries)
+        .await
+        .map_err(|e| e.to_string())?;
+    let ytdlp = binaries.ytdlp_path.ok_or("ไม่พบ yt-dlp ในระบบ")?;
+    if format_spec == "bestaudio/best" && binaries.ffmpeg_path.is_none() {
+        return Err("ต้องติดตั้ง FFmpeg เพื่อแปลง MP3".into());
+    }
+    if !Path::new(&download_dir).is_absolute() {
+        return Err("กรุณาเลือกโฟลเดอร์ปลายทาง".into());
+    }
+    tokio::fs::create_dir_all(&download_dir)
+        .await
+        .map_err(|e| format!("สร้างโฟลเดอร์ไม่ได้: {e}"))?;
+    let template = Path::new(&download_dir).join("%(title).150B [%(id)s].%(ext)s");
+    let mut cmd = Command::new(ytdlp);
+    cmd.env("PYTHONIOENCODING", "utf-8");
     if binaries.use_python_module {
         cmd.args(["-m", "yt_dlp"]);
     }
-
     cmd.args([
+        "--ignore-config",
+        "--encoding",
+        "utf-8",
         "--newline",
+        "--progress",
         "--progress-template",
-        "download:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress._total_bytes_estimate_str)s",
+        "download:download:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
         "--no-playlist",
+        "--playlist-items",
+        "1",
+        "--socket-timeout",
+        "20",
+        "--retries",
+        "2",
+        "--js-runtimes",
+        "node",
+        "--no-overwrites",
         "-f",
         &format_spec,
         "-o",
-        &output_template,
     ]);
-
-    // If audio-only format chosen, extract audio or merge
+    cmd.arg(template);
     if format_spec == "bestaudio/best" {
         cmd.args(["-x", "--audio-format", "mp3"]);
-    } else {
-        cmd.args(["--merge-output-format", "mp4"]);
+    } else if binaries.ffmpeg_path.is_some() {
+        cmd.args(["--merge-output-format", "mp4", "--remux-video", "mp4"]);
     }
-
-    if let Some(ffmpeg) = &binaries.ffmpeg_path {
-        cmd.args(["--ffmpeg-location", ffmpeg]);
+    if let Some(ffmpeg) = binaries.ffmpeg_path {
+        if ffmpeg != "ffmpeg" {
+            cmd.args(["--ffmpeg-location", &ffmpeg]);
+        }
     }
-
-    cmd.arg(&url);
-
+    cmd.arg("--")
+        .arg(url)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
     #[cfg(target_os = "windows")]
-    cmd.creation_flags(CREATE_NO_WINDOW);
-
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
-
-    // Emit initial preparing status
-    let _ = app.emit(
-        "download-progress",
-        DownloadProgressPayload {
-            progress: 0.0,
-            speed: "-".to_string(),
-            eta: "-".to_string(),
-            status: "preparing".to_string(),
-            message: "กำลังเตรียมการดาวน์โหลด...".to_string(),
-        },
-    );
-
-    let mut child = cmd.spawn().map_err(|e| format!("ไม่สามารถเริ่ม yt-dlp: {}", e))?;
-
-    if let Some(pid) = child.id() {
-        let mut pid_guard = manager.current_pid.lock().await;
-        *pid_guard = Some(pid);
-    }
-
-    let stdout = child.stdout.take().ok_or("ไม่สามารถเปิด stdout pipe")?;
-    let mut reader = BufReader::new(stdout).lines();
-
-    let app_clone = app.clone();
-    let is_cancelled_clone = manager.is_cancelled.clone();
-
-    while let Ok(Some(line)) = reader.next_line().await {
-        if is_cancelled_clone.load(Ordering::SeqCst) {
-            break;
+    cmd.creation_flags(0x08000000);
+    #[cfg(unix)]
+    cmd.process_group(0);
+    let mut child = cmd.spawn().map_err(|e| format!("เริ่ม yt-dlp ไม่ได้: {e}"))?;
+    let stdout = child.stdout.take().ok_or("เปิด stdout ไม่ได้")?;
+    let stderr = child.stderr.take().ok_or("เปิด stderr ไม่ได้")?;
+    let out_app = app.clone();
+    let reader = tokio::spawn(async move {
+        let mut lines = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if let Some(payload) = parse_stdout_line(&line) {
+                let _ = out_app.emit("download-progress", payload);
+            }
         }
-
-        if let Some(payload) = parse_stdout_line(&line) {
-            let _ = app_clone.emit("download-progress", payload);
+    });
+    let err_app = app;
+    let errors = tokio::spawn(async move {
+        let mut lines = BufReader::new(stderr).lines();
+        let mut last_error = String::new();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if let Some(payload) = parse_stdout_line(&line) {
+                let _ = err_app.emit("download-progress", payload);
+            }
+            if line.contains("ERROR:") {
+                last_error = line.chars().take(1000).collect();
+            }
         }
-    }
-
-    let status = child.wait().await.map_err(|e| format!("รอ process ล้มเหลว: {}", e))?;
-
-    // Clear active PID
-    {
-        let mut pid_guard = manager.current_pid.lock().await;
-        *pid_guard = None;
-    }
-
-    if is_cancelled_clone.load(Ordering::SeqCst) {
-        let _ = app.emit(
-            "download-progress",
-            DownloadProgressPayload {
-                progress: 0.0,
-                speed: "-".to_string(),
-                eta: "-".to_string(),
-                status: "cancelled".to_string(),
-                message: "ยกเลิกการดาวน์โหลดแล้ว".to_string(),
-            },
-        );
-        return Ok(());
-    }
-
-    if status.success() {
-        let _ = app.emit(
-            "download-progress",
-            DownloadProgressPayload {
-                progress: 100.0,
-                speed: "-".to_string(),
-                eta: "00:00".to_string(),
-                status: "completed".to_string(),
-                message: "ดาวน์โหลดเสร็จสมบูรณ์ 100%".to_string(),
-            },
-        );
+        last_error
+    });
+    manager.active.store(true, Ordering::SeqCst);
+    let result = tokio::select! {
+        status = child.wait() => status.map_err(|e| e.to_string()),
+        _ = manager.cancelled.notified() => {
+            if let Some(pid) = child.id() {
+                #[cfg(target_os = "windows")]
+                { let _ = Command::new("taskkill").args(["/F", "/T", "/PID", &pid.to_string()]).creation_flags(0x08000000).output().await; }
+                #[cfg(unix)]
+                { let _ = Command::new("kill").args(["-KILL", "--", &format!("-{pid}")]).output().await; }
+            }
+            let _ = child.kill().await;
+            Err("ยกเลิกการดาวน์โหลดแล้ว".into())
+        }
+    };
+    manager.active.store(false, Ordering::SeqCst);
+    // Consume a cancellation racing with normal completion, so the next job starts cleanly.
+    let _ = tokio::time::timeout(
+        std::time::Duration::from_millis(1),
+        manager.cancelled.notified(),
+    )
+    .await;
+    let _ = reader.await;
+    let message = errors.await.unwrap_or_default();
+    if result?.success() {
         Ok(())
     } else {
-        let err_msg = format!("การดาวน์โหลดสิ้นสุดด้วยรหัสข้อผิดพลาด: {:?}", status.code());
-        let _ = app.emit(
-            "download-progress",
-            DownloadProgressPayload {
-                progress: 0.0,
-                speed: "-".to_string(),
-                eta: "-".to_string(),
-                status: "error".to_string(),
-                message: err_msg.clone(),
-            },
-        );
-        Err(err_msg)
+        Err(if message.is_empty() {
+            "ดาวน์โหลดไม่สำเร็จ กรุณาลองใหม่".into()
+        } else {
+            message
+        })
     }
 }

@@ -1,11 +1,11 @@
 # -----------------------------------------------------------
 # Stage 1: Build Frontend (React + Vite)
 # -----------------------------------------------------------
-FROM node:20-bookworm-slim AS frontend-builder
+FROM node:22-bookworm-slim AS frontend-builder
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 
 COPY . .
 RUN npm run build
@@ -13,7 +13,7 @@ RUN npm run build
 # -----------------------------------------------------------
 # Stage 2: Production Runner (Node.js + Python + yt-dlp + FFmpeg)
 # -----------------------------------------------------------
-FROM node:20-bookworm-slim AS runner
+FROM node:22-bookworm-slim AS runner
 
 # Install system packages (Python, FFmpeg, Curl)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -32,7 +32,7 @@ WORKDIR /app
 
 # Install server production dependencies
 COPY server/package*.json ./server/
-RUN cd server && npm install --omit=dev
+RUN cd server && npm ci --omit=dev
 
 # Copy server code
 COPY server/ ./server/
@@ -49,4 +49,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:${PORT}/api/health || exit 1
 
 WORKDIR /app/server
+USER node
 CMD ["node", "index.js"]

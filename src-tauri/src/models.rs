@@ -19,10 +19,10 @@ pub struct VideoMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadProgressPayload {
-    pub progress: f32,       // 0.0 - 100.0
-    pub speed: String,       // e.g. "8.2 MB/s"
-    pub eta: String,         // e.g. "00:15"
-    pub status: String,      // "preparing" | "downloading" | "merging" | "completed" | "cancelled" | "error"
+    pub progress: f32,  // 0.0 - 100.0
+    pub speed: String,  // e.g. "8.2 MB/s"
+    pub eta: String,    // e.g. "00:15"
+    pub status: String, // "preparing" | "downloading" | "merging" | "completed" | "cancelled" | "error"
     pub message: String,
 }
 

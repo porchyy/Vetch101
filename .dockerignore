@@ -8,3 +8,5 @@ src-tauri
 *.bat
 *.exe
 *.dll
+temp
+downloads

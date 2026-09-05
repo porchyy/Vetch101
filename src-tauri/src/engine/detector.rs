@@ -34,7 +34,10 @@ pub fn detect_ffmpeg() -> Option<String> {
 
     // 2. WinGet package paths
     if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
-        let winget_dir = PathBuf::from(local_appdata).join("Microsoft").join("WinGet").join("Packages");
+        let winget_dir = PathBuf::from(local_appdata)
+            .join("Microsoft")
+            .join("WinGet")
+            .join("Packages");
         if winget_dir.exists() {
             if let Ok(entries) = std::fs::read_dir(&winget_dir) {
                 for entry in entries.flatten() {
@@ -72,7 +75,10 @@ pub fn detect_ytdlp() -> (Option<String>, bool) {
 
     // 2. WinGet package paths
     if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
-        let winget_dir = PathBuf::from(local_appdata).join("Microsoft").join("WinGet").join("Packages");
+        let winget_dir = PathBuf::from(local_appdata)
+            .join("Microsoft")
+            .join("WinGet")
+            .join("Packages");
         if winget_dir.exists() {
             if let Ok(entries) = std::fs::read_dir(&winget_dir) {
                 for entry in entries.flatten() {

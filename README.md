@@ -1,102 +1,84 @@
-# Vetch101 - Universal Video & Audio Downloader 🚀
+# Vetch101
 
-**Vetch101** เป็นระบบดาวน์โหลดวิดีโอและเสียงประสิทธิภาพสูง รองรับกว่า 1,000 แพลตฟอร์ม ทั้ง TikTok (ไม่มีลายน้ำ), YouTube, Facebook, Instagram, Twitter/X และอื่นๆ ใช้งานได้ทั้งในรูปแบบเว็บแอปพลิเคชัน (Web App) และโปรแกรมติดตั้งบนคอมพิวเตอร์ (Desktop App ด้วย Tauri)
+เครื่องมือบันทึกวิดีโอและเสียงจากลิงก์ ใช้ได้ผ่านเว็บหรือแอป Windows (Tauri)
 
----
+## เริ่มใช้งานบน Windows
 
-## ✨ คุณสมบัติเด่น (Features)
+ต้องมี **Node.js 22.12+**, **yt-dlp**, และ **FFmpeg** (รวม ffprobe สำหรับแปลงเสียง)
 
-- ⚡ **ดาวน์โหลดรวดเร็ว:** รองรับสตรีมตรงผ่าน CDN และ yt-dlp
-- 🎵 **แยกไฟล์เสียง MP3:** แปลงและดาวน์โหลดเฉพาะเพลงหรือเสียงบรรยายในคลิกเดียว
-- 🎬 **TikTok ไร้ลายน้ำ:** ดึงวิดีโอ TikTok คุณภาพสูงแบบไม่มีลายน้ำ
-- 🖥️ **สถาปัตยกรรมแบบไฮบริด:**
-  - **Web Mode:** รันผ่าน Node.js / Express + Vite React
-  - **Desktop Mode:** รันผ่าน Tauri 2.0 (Rust) ขนาดกะทัดรัด กินแรมน้อย
-  - **Cloud Ready:** มี `Dockerfile` และ `render.yaml` พร้อม Deploy ทันที
-- 🎨 **Modern UI:** สวยงาม ใช้งานง่าย ออกแบบด้วย React 19, Tailwind CSS v4 และ Lucide Icons
-- 📜 **ประวัติดาวน์โหลดล่าสุด:** บันทึกประวัติในเครื่อง ไม่เก็บข้อมูลส่วนตัว
+ติดตั้งเครื่องมือดาวน์โหลดด้วย WinGet:
 
----
-
-## 📁 โครงสร้างโปรเจกต์ (Project Structure)
-
-```text
-Vetch101/
-├── src/                # Frontend (React 19 + Vite + Tailwind CSS v4)
-├── server/             # Backend API (Express.js + yt-dlp engine)
-├── src-tauri/          # Desktop App Core (Rust + Tauri 2.0)
-├── public/             # Static Assets & Icons
-├── Dockerfile          # Multi-stage Docker build สำหรับ production
-├── render.yaml         # Render Blueprint สำหรับ deploy ขึ้นคลาวด์
-├── start.bat           # รันระบบ Web App (Backend + Frontend)
-├── run.bat             # รัน Desktop App (Tauri dev mode)
-└── package.json        # Frontend dependencies & scripts
+```powershell
+winget install --id yt-dlp.yt-dlp -e
+winget install --id Gyan.FFmpeg.Essentials -e
 ```
 
----
+เปิด Terminal ใหม่หลังติดตั้ง เพื่อให้ PATH อัปเดต โปรแกรมค้นหาแพ็กเกจ WinGet ให้อัตโนมัติด้วย
 
-## 🛠️ วิธีติดตั้งและเริ่มต้นใช้งาน (Getting Started)
+- **เว็บ:** ดับเบิลคลิก `start.bat` แล้วเปิด http://127.0.0.1:3001 ไฟล์นี้ติดตั้ง dependencies ที่ขาดและ build หน้าเว็บก่อนรัน ปิดด้วย Ctrl+C
+- **เดสก์ท็อป:** ดับเบิลคลิก `run.bat` ต้องมี Rust, Windows build tools และ WebView2 ด้วย หน้าแอปเรียก Rust โดยตรง ไม่ต้องเปิด Node server
+- ในแอป วางลิงก์ → ดูตัวเลือกดาวน์โหลด → เลือกวิดีโอหรือ MP3 → บันทึก
+- ฝั่งเว็บรอเตรียมไฟล์ก่อนเริ่มรับข้อมูล จึงไม่แสดงเปอร์เซ็นต์สมมติ สามารถกดยกเลิกได้
+- TikTok บางรายการเปิดไฟล์ CDN ในแท็บใหม่ ให้บันทึกจากเมนูเบราว์เซอร์ เส้นทางนี้ไม่มีการรับรองว่าไฟล์ถูกบันทึกแล้วและไม่เพิ่มประวัติสำเร็จ
 
-### 1. ความต้องการของระบบ (Prerequisites)
-- [Node.js](https://nodejs.org/) v18 ขึ้นไป
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) ติดตั้งในระบบ (หรือใน PATH)
-- [FFmpeg](https://ffmpeg.org/) (แนะนำสำหรับการรวมภาพและเสียงความละเอียดสูง)
-- *(ทางเลือกสำหรับการพัฒนา Desktop)*: [Rust & Cargo](https://rustup.rs/)
+## พัฒนาและตรวจสอบ
 
-### 2. ติดตั้ง Dependencies
-```bash
-# ติดตั้ง dependencies ฝั่ง Frontend
-npm install
-
-# ติดตั้ง dependencies ฝั่ง Backend
-cd server
-npm install
-cd ..
-```
-
-### 3. รันโปรเจกต์
-
-#### 🌐 วิธีที่ 1: รัน Web Mode (แนะนำ)
-เปิดไฟล์ `start.bat` หรือรันคำสั่ง:
-```bash
-# Terminal 1: เริ่มต้น Backend (Port 3001)
-cd server
-node index.js
-
-# Terminal 2: เริ่มต้น Frontend (Port 1420)
+```powershell
+npm ci
+npm ci --prefix server
+# เปิดคนละ Terminal
+node server/index.js
 npm run dev
-```
-เปิดเบราว์เซอร์ที่ `http://localhost:1420`
-
-#### 💻 วิธีที่ 2: รัน Desktop Mode (Tauri)
-เปิดไฟล์ `run.bat` หรือรันคำสั่ง:
-```bash
-npm run tauri dev
+# เปิด http://localhost:1420
 ```
 
----
+```powershell
+npm run build
+npm test --prefix server
+cd src-tauri
+cargo test --lib
+```
 
-## 🐳 การรันด้วย Docker
+ชุดทดสอบครอบคลุม URL/DNS/IP ภายใน, HTTP proxy, format selection, process errors/cancellation และ API ที่ไม่ส่งไฟล์ว่างเมื่อแปลงล้มเหลว
 
-```bash
-# Build image
+## การตั้งค่าเซิร์ฟเวอร์
+
+| ตัวแปร | ค่าเริ่มต้น / ความหมาย |
+|---|---|
+| PORT | 3001 |
+| HOST | 127.0.0.1; production ใช้ 0.0.0.0 |
+| YTDLP_PATH | ตำแหน่ง executable ถ้าตรวจอัตโนมัติไม่พบ |
+| FFMPEG_PATH | ตำแหน่ง ffmpeg executable; ffprobe ต้องอยู่โฟลเดอร์เดียวกัน |
+| MAX_ACTIVE_DOWNLOADS | 2 งาน |
+| MAX_FILESIZE | 500M (รองรับจำนวนเต็มตามด้วย K, M, G) |
+| TRUST_PROXY | ตั้ง 1 เฉพาะเมื่ออยู่หลัง reverse proxy หนึ่งชั้น เช่น Render; อย่าเปิดเมื่อเข้าถึง Node โดยตรง |
+
+คำขอ metadata จำกัด 10 ครั้ง/นาที/IP และพร้อมกัน 4 งาน; ดาวน์โหลดผ่านเซิร์ฟเวอร์จำกัด 5 ครั้ง/ชั่วโมง/IP และเวลาเตรียมไม่เกิน 10 นาที token หมดอายุใน 10 นาที
+
+เซิร์ฟเวอร์ดาวน์โหลดลงโฟลเดอร์ชั่วคราว แปลง/ตรวจชนิดและขนาดไฟล์ แล้วจึงส่งให้เบราว์เซอร์ ล้างไฟล์เมื่อส่งจบ ล้มเหลว หรือยกเลิก การตรวจพื้นที่ระหว่างแปลงเป็นการสุ่มตรวจทุกวินาที ไม่ใช่ disk quota แบบเข้มงวด
+
+URL รับเฉพาะ HTTP(S), พอร์ต 80/443 และ IP สาธารณะ yt-dlp ใช้ HTTP proxy ภายในซึ่งตรวจ DNS ใหม่และเชื่อมต่อไป IP ที่ตรวจแล้วทุกครั้ง รวม redirect เพื่อป้องกัน DNS rebinding ใช้เฉพาะ native HTTP downloaders ไม่ใช้ config ของ yt-dlp จากเครื่องเซิร์ฟเวอร์
+
+ประวัติเก็บเฉพาะใน localStorage เครื่องนี้ ไม่มีฐานข้อมูลกลาง TikTok fallback ส่งลิงก์ไป TikWM และเปิด CDN ของผู้ให้บริการโดยตรง
+
+## Docker / Render
+
+```sh
 docker build -t vetch101 .
-
-# Run container
-docker run -d -p 3001:3001 --name vetch101-app vetch101
+docker run --rm -p 3001:3001 vetch101
 ```
-เข้าใช้งานได้ทันทีที่ `http://localhost:3001`
 
----
+Docker ใช้ Node 22, npm ci, yt-dlp และ FFmpeg และรันด้วยผู้ใช้ node ที่ไม่ใช่ root มี render.yaml สำหรับ Render
 
-## 🔒 ความปลอดภัยและความเป็นส่วนตัว
+ก่อนเปิดบริการสาธารณะ ควรกำหนด disk quota/พื้นที่ชั่วคราวและ egress firewall ของโฮสต์เพิ่มเติม ขนาด 500 MiB เป็นเพดานไฟล์ฝั่งเซิร์ฟเวอร์; browser รับไฟล์เป็น Blob จึงต้องมีหน่วยความจำเพียงพอ
 
-- ป้องกัน SSRF (Server-Side Request Forgery) ในระดับเน็ตเวิร์ก
-- กรองชื่อไฟล์ป้องกัน Path Traversal และอักขระต้องห้ามของระบบปฏิบัติการ
-- ไม่มีการเก็บข้อมูลประวัติการดาวน์โหลดของผู้ใช้ลงฐานข้อมูลกลาง
+## ข้อจำกัดและเอกสารอ้างอิง
 
----
+- ดาวน์โหลดเฉพาะสื่อที่มีสิทธิ์เข้าถึง ไม่รองรับ DRM, การข้ามล็อกอิน หรือไลฟ์ที่ยังไม่จบ
+- ความพร้อมใช้งานขึ้นกับต้นทาง บางแพลตฟอร์มอาจต้องใช้ cookie หรือบล็อก IP ของ cloud; แอปจะแจ้งข้อผิดพลาด ไม่มีการรับประกันทุกลิงก์
+- อัปเดต yt-dlp เมื่อแพลตฟอร์มเปลี่ยน API: `winget upgrade --id yt-dlp.yt-dlp -e`
+- [yt-dlp: formats, FFmpeg และ output](https://github.com/yt-dlp/yt-dlp)
+- [yt-dlp: JavaScript runtime สำหรับ YouTube](https://github.com/yt-dlp/yt-dlp/wiki/EJS) — เว็บใช้ Node ที่รันเซิร์ฟเวอร์อยู่ เดสก์ท็อปใช้ Node ใน PATH
+- [Tauri: เรียก Rust จาก frontend](https://v2.tauri.app/develop/calling-rust/)
 
-## 📄 ใบอนุญาต (License)
 MIT License
-

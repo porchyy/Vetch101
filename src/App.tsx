@@ -1,34 +1,31 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { parseVideoUrl } from "./video-url";
 import {
-  Download,
-  X,
-  Loader2,
-  Music,
-  Film,
-  Clock,
-  RotateCcw,
-  ClipboardPaste,
-  Sparkles,
-  CheckCircle2,
-  AlertTriangle,
-  ShieldCheck,
-  Zap,
-  Copy,
+  ArrowDown,
+  ArrowUpRight,
   Check,
-  History,
+  Clipboard,
+  Clock3,
+  FileAudio,
+  Film,
+  FolderOpen,
+  Link2,
+  LoaderCircle,
+  RotateCcw,
   Trash2,
-  ExternalLink,
+  X,
 } from "lucide-react";
 
 interface Quality {
   id: string;
   label: string;
-  format_spec: string;
   ext: string;
+  format_spec?: string;
   direct_url?: string;
 }
-
-interface VideoMetadata {
+interface Metadata {
   id: string;
   title: string;
   thumbnail: string;
@@ -36,633 +33,675 @@ interface VideoMetadata {
   channel?: string;
   platform?: string;
   qualities: Quality[];
+  downloadToken?: string;
 }
-
-interface RecentDownload {
+interface Recent {
   id: string;
   title: string;
-  thumbnail: string;
-  platform: string;
-  date: string;
   url: string;
+  platform: string;
+  date: number;
+  ext: string;
 }
-
-type DownloadStatus = "idle" | "loading" | "ready" | "downloading" | "error";
-
-function formatDuration(sec?: number): string {
-  if (!sec || sec <= 0) return "";
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
+interface Progress {
+  progress: number;
+  status: string;
+  message: string;
 }
-
-function detectPlatformFromUrl(u: string): string | null {
-  const lower = u.toLowerCase();
-  if (lower.includes("tiktok.com") || lower.includes("vt.tiktok")) return "TikTok";
-  if (lower.includes("youtube.com") || lower.includes("youtu.be")) return "YouTube";
-  if (lower.includes("facebook.com") || lower.includes("fb.watch")) return "Facebook";
-  if (lower.includes("instagram.com")) return "Instagram";
-  if (lower.includes("twitter.com") || lower.includes("x.com")) return "Twitter / X";
-  if (lower.includes("soundcloud.com")) return "SoundCloud";
-  if (lower.includes("bilibili.com")) return "Bilibili";
-  return null;
+interface Health {
+  ok: boolean;
+  ffmpeg: boolean;
 }
+type Status = "idle" | "loading" | "ready" | "downloading";
+const desktop = isTauri();
+const storageKey = "vetch101_history_v2";
 
-const PLATFORMS = [
-  { name: "TikTok", badge: "ไม่มีลายน้ำ", color: "bg-slate-900 text-white border-slate-700" },
-  { name: "YouTube", badge: "HD / 4K", color: "bg-red-50 text-red-700 border-red-200" },
-  { name: "Facebook", badge: "Reels / Post", color: "bg-blue-50 text-blue-700 border-blue-200" },
-  { name: "Instagram", badge: "Reels / Video", color: "bg-pink-50 text-pink-700 border-pink-200" },
-  { name: "Twitter / X", badge: "MP4", color: "bg-slate-100 text-slate-800 border-slate-300" },
-];
+function platform(value: string) {
+  try {
+    const host = new URL(value).hostname.replace(/^www\./, "");
+    for (const [domain, name] of [
+      ["youtube.com", "YouTube"],
+      ["youtu.be", "YouTube"],
+      ["tiktok.com", "TikTok"],
+      ["facebook.com", "Facebook"],
+      ["fb.watch", "Facebook"],
+      ["instagram.com", "Instagram"],
+      ["x.com", "X"],
+      ["twitter.com", "X"],
+      ["soundcloud.com", "SoundCloud"],
+    ]) {
+      if (host === domain || host.endsWith("." + domain)) return name;
+    }
+    return host;
+  } catch {
+    return "";
+  }
+}
+function duration(value?: number) {
+  const total = Math.max(0, Math.floor(value || 0));
+  return total ? [Math.floor(total / 60), String(total % 60).padStart(2, "0")].join(":") : "";
+}
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+async function responseError(res: Response) {
+  const data = await res.json().catch(() => null);
+  return new Error(
+    data?.error || (res.status === 503 ? "ระบบยังไม่พร้อม กรุณาลองใหม่" : "เชื่อมต่อไม่สำเร็จ กรุณาลองใหม่"),
+  );
+}
 
 export default function App() {
   const [url, setUrl] = useState("");
-  const [status, setStatus] = useState<DownloadStatus>("idle");
-  const [metadata, setMetadata] = useState<VideoMetadata | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [activeDownloadId, setActiveDownloadId] = useState<string | null>(null);
-  const [downloadSuccessMsg, setDownloadSuccessMsg] = useState<string | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [recentDownloads, setRecentDownloads] = useState<RecentDownload[]>([]);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  // โหลดประวัติจาก localStorage
-  useEffect(() => {
+  const [meta, setMeta] = useState<Metadata | null>(null);
+  const [qualityId, setQualityId] = useState("");
+  const [status, setStatus] = useState<Status>("idle");
+  const [health, setHealth] = useState<Health | null>(null);
+  const [checking, setChecking] = useState(true);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [progress, setProgress] = useState<Progress | null>(null);
+  const [folder, setFolder] = useState("");
+  const [recent, setRecent] = useState<Recent[]>(() => {
     try {
-      const saved =
-        localStorage.getItem("vetch101_recent_downloads") ||
-        localStorage.getItem("dlx_recent_downloads");
-      if (saved) {
-        setRecentDownloads(JSON.parse(saved));
+      const saved: unknown = JSON.parse(localStorage.getItem(storageKey) || "[]");
+      return Array.isArray(saved)
+        ? saved
+            .filter(
+              (v): v is Recent =>
+                v &&
+                typeof v.id === "string" &&
+                typeof v.url === "string" &&
+                /^https?:\/\//.test(v.url) &&
+                typeof v.title === "string" &&
+                typeof v.date === "number" &&
+                typeof v.platform === "string" &&
+                typeof v.ext === "string",
+            )
+            .slice(0, 5)
+        : [];
+    } catch {
+      return [];
+    }
+  });
+  const request = useRef<AbortController | null>(null);
+  const version = useRef(0);
+  const sourceUrl = useRef("");
+  const downloadLock = useRef(false);
+  const input = useRef<HTMLInputElement>(null);
+  const busy = status === "loading" || status === "downloading";
+  const selected = meta?.qualities.find((q) => q.id === qualityId);
+
+  const checkHealth = useCallback(async () => {
+    setChecking(true);
+    try {
+      if (desktop) {
+        const data = await invoke<{ ytdlp_available: boolean; ffmpeg_available: boolean }>("check_dependencies");
+        setHealth({ ok: data.ytdlp_available, ffmpeg: data.ffmpeg_available });
+        const defaultFolder = await invoke<string>("get_default_download_dir");
+        setFolder((previous) => previous || defaultFolder);
+      } else {
+        const res = await fetch("/api/health", { signal: AbortSignal.timeout(12_000) });
+        const data = await res.json();
+        setHealth({ ok: res.ok && data.ok, ffmpeg: data.ffmpegAvailable });
       }
-    } catch {}
+    } catch {
+      setHealth({ ok: false, ffmpeg: false });
+    } finally {
+      setChecking(false);
+    }
+  }, []);
+  useEffect(() => {
+    void checkHealth();
+    return () => {
+      version.current++;
+      request.current?.abort();
+    };
+  }, [checkHealth]);
+  useEffect(() => {
+    if (!desktop) return;
+    const unlisten = listen<Progress>("download-progress", (e) => setProgress(e.payload));
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
   }, []);
 
-  const saveToRecent = (meta: VideoMetadata, originalUrl: string) => {
-    setRecentDownloads((prev) => {
-      const filtered = prev.filter((item) => item.id !== meta.id);
-      const updated = [
-        {
-          id: meta.id,
-          title: meta.title,
-          thumbnail: meta.thumbnail,
-          platform: meta.platform || "Video",
-          date: new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }),
-          url: originalUrl,
-        },
-        ...filtered,
-      ].slice(0, 5);
-
-      try {
-        localStorage.setItem("vetch101_recent_downloads", JSON.stringify(updated));
-      } catch {}
-      return updated;
-    });
+  const clear = () => {
+    if (downloadLock.current) return;
+    request.current?.abort();
+    version.current++;
+    setUrl("");
+    setMeta(null);
+    setStatus("idle");
+    setError("");
+    setNotice("");
+    input.current?.focus();
   };
-
-  const clearRecent = () => {
-    setRecentDownloads([]);
+  const fetchVideo = async (value: string) => {
+    if (downloadLock.current) return;
+    let clean: string;
     try {
-      localStorage.removeItem("vetch101_recent_downloads");
-      localStorage.removeItem("dlx_recent_downloads");
-    } catch {}
-  };
-
-  const detectedPlatform = url ? detectPlatformFromUrl(url) : null;
-
-  // ดึงข้อมูลวิดีโอ
-  const fetchVideo = useCallback(
-    async (targetUrl: string) => {
-      const cleanUrl = targetUrl.trim();
-      if (!cleanUrl) return;
-
-      if (!/^https?:\/\//i.test(cleanUrl)) {
-        setError("กรุณาระบุลิงค์ที่ขึ้นต้นด้วย http:// หรือ https://");
-        setStatus("error");
-        return;
-      }
-
-      setStatus("loading");
-      setError(null);
-      setMetadata(null);
-      setDownloadSuccessMsg(null);
-
-      try {
+      clean = parseVideoUrl(value);
+    } catch (err) {
+      setError(errorMessage(err));
+      input.current?.focus();
+      return;
+    }
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
+    const current = ++version.current;
+    setUrl(clean);
+    setStatus("loading");
+    setMeta(null);
+    setError("");
+    setNotice("");
+    try {
+      let data: Metadata;
+      if (desktop) {
+        data = await invoke<Metadata>("fetch_metadata", { url: clean });
+        data.qualities = data.qualities.map((q) => ({ ...q, ext: q.format_spec === "bestaudio/best" ? "mp3" : "mp4" }));
+      } else {
         const res = await fetch("/api/metadata", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: cleanUrl }),
+          body: JSON.stringify({ url: clean }),
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(50_000)]),
         });
-
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || "ไม่สามารถดึงข้อมูลวิดีโอได้ กรุณาตรวจสอบลิงค์");
-        }
-
-        setMetadata(data);
-        setStatus("ready");
-      } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : "เกิดข้อผิดพลาดในการดึงข้อมูล");
-        setStatus("error");
+        if (!res.ok) throw await responseError(res);
+        data = await res.json();
       }
-    },
-    []
-  );
-
-  const handleSubmit = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    fetchVideo(url);
-  };
-
-  const handlePaste = async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (text) {
-        setUrl(text.trim());
-        fetchVideo(text.trim());
-      }
-    } catch {
-      inputRef.current?.focus();
+      if (version.current !== current) return;
+      sourceUrl.current = clean;
+      setMeta(data);
+      setQualityId(data.qualities[0]?.id || "");
+      setStatus("ready");
+    } catch (err) {
+      if (version.current !== current) return;
+      setError(controller.signal.aborted ? "ยกเลิกการตรวจลิงก์แล้ว" : errorMessage(err));
+      setStatus("idle");
     }
   };
-
-  const handleClear = () => {
-    setUrl("");
-    setMetadata(null);
-    setError(null);
-    setStatus("idle");
-    setDownloadSuccessMsg(null);
-    inputRef.current?.focus();
-  };
-
-  // สร้าง Download URL
-  const getDownloadUrl = (quality: Quality) => {
-    if (!metadata) return "#";
-    const params = new URLSearchParams({
-      url: url.trim(),
-      format: quality.format_spec,
-      title: metadata.title,
-      audio: quality.ext === "mp3" ? "1" : "0",
+  const remember = (data: Metadata, ext: string) => {
+    const original = sourceUrl.current;
+    setRecent((prev) => {
+      const updated = [
+        { id: original, title: data.title, url: original, platform: platform(original), ext, date: Date.now() },
+        ...prev.filter((x) => x.url !== original),
+      ].slice(0, 5);
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(updated));
+      } catch {
+        /* History is optional when storage is disabled. */
+      }
+      return updated;
     });
-    if (quality.direct_url) {
-      params.append("direct_url", quality.direct_url);
+  };
+  const download = async () => {
+    if (!meta || !selected || downloadLock.current) return;
+    if (selected.direct_url) {
+      try {
+        const link = new URL(selected.direct_url);
+        if (!["http:", "https:"].includes(link.protocol)) throw new Error();
+        window.open(link.href, "_blank", "noopener,noreferrer");
+        setNotice("เปิดไฟล์ต้นทางในแท็บใหม่แล้ว ใช้เมนูบันทึกของเบราว์เซอร์");
+      } catch {
+        setError("ลิงก์ต้นทางไม่ถูกต้อง กรุณาดึงข้อมูลใหม่");
+      }
+      return;
     }
-    return `/api/download?${params.toString()}`;
-  };
-
-  // ดาวน์โหลดไฟล์ผ่านเบราว์เซอร์
-  const handleDownload = (quality: Quality) => {
-    if (!metadata) return;
-    setActiveDownloadId(quality.id);
-    setDownloadSuccessMsg(`กำลังส่งไฟล์ "${quality.label}" ไปยังเบราว์เซอร์...`);
-
-    const dlUrl = getDownloadUrl(quality);
-    const link = document.createElement("a");
-    link.href = dlUrl;
-    link.download = `${metadata.title}.${quality.ext}`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    saveToRecent(metadata, url.trim());
-
-    setTimeout(() => {
-      setActiveDownloadId(null);
-      setDownloadSuccessMsg("ดาวน์โหลดเริ่มต้นแล้ว! ตรวจสอบแถบดาวน์โหลดในเบราว์เซอร์ของคุณ");
-    }, 2000);
-  };
-
-  // คัดลอกลิงค์ดาวน์โหลดตรง
-  const handleCopyLink = async (quality: Quality) => {
-    const dlUrl = window.location.origin + getDownloadUrl(quality);
+    downloadLock.current = true;
+    const controller = new AbortController();
+    request.current = controller;
+    setStatus("downloading");
+    setError("");
+    setNotice("");
+    setProgress(null);
     try {
-      await navigator.clipboard.writeText(dlUrl);
-      setCopiedId(quality.id);
-      setTimeout(() => setCopiedId(null), 2000);
-    } catch {}
+      if (desktop) {
+        await invoke("start_download", {
+          url: sourceUrl.current,
+          formatSpec: selected.format_spec,
+          downloadDir: folder,
+        });
+        setNotice("บันทึกไฟล์ในโฟลเดอร์ที่เลือกแล้ว");
+      } else {
+        const params = new URLSearchParams({ token: meta.downloadToken || "", quality: selected.id });
+        const res = await fetch("/api/download?" + params, { signal: controller.signal });
+        if (!res.ok) throw await responseError(res);
+        setNotice("เตรียมไฟล์เสร็จแล้ว กำลังรับไฟล์…");
+        // ponytail: Blob buffers up to the server's 500 MiB limit; stream to disk if larger files are needed.
+        const blob = await res.blob();
+        if (!blob.size) throw new Error("ได้รับไฟล์ว่าง กรุณาลองใหม่");
+        const objectUrl = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = objectUrl;
+        anchor.download = meta.title.replace(/[<>:"/\\|?*\x00-\x1f]/g, "").slice(0, 80) + "." + selected.ext;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+        setNotice("รับไฟล์ครบแล้ว ส่งให้เบราว์เซอร์บันทึกเรียบร้อย");
+      }
+      remember(meta, selected.ext);
+    } catch (err) {
+      setNotice("");
+      setError(controller.signal.aborted ? "ยกเลิกการดาวน์โหลดแล้ว" : errorMessage(err));
+    } finally {
+      downloadLock.current = false;
+      setStatus("ready");
+      setProgress(null);
+    }
+  };
+  const cancel = async () => {
+    if (desktop && status === "downloading") {
+      try {
+        await invoke("cancel_download");
+      } catch (err) {
+        setError(errorMessage(err));
+      }
+    } else {
+      request.current?.abort();
+      if (status === "loading") {
+        version.current++;
+        setStatus("idle");
+        setNotice("ยกเลิกการตรวจลิงก์แล้ว");
+      }
+    }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col selection:bg-violet-500 selection:text-white">
-      {/* ── Top Header ── */}
-      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-8 py-3.5">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-violet-600 via-purple-600 to-pink-500 flex items-center justify-center text-white shadow-md shadow-violet-200">
-              <Download size={20} className="stroke-[2.5]" />
-            </div>
-            <div>
-              <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-violet-700 via-purple-700 to-pink-600 bg-clip-text text-transparent">
-                Vetch101
-              </span>
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 ml-1.5 px-1.5 py-0.5 bg-slate-100 rounded">
-                Downloader
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              ระบบพร้อมทำงาน (yt-dlp + TikWM)
-            </span>
-          </div>
+    <div className="app-shell">
+      <header className="site-header">
+        <a className="wordmark" href="#" aria-label="Vetch101 หน้าหลัก">
+          <span className="brand-icon">
+            <ArrowDown size={22} />
+          </span>
+          vetch<span className="brand-number">101</span>
+          <span className="brand-dot">.</span>
+        </a>
+        <div className="header-right">
+          <span className="mode-label">{desktop ? "DESKTOP EDITION" : "VIDEO & AUDIO DOWNLOADER"}</span>
+          <button className="health-button" onClick={checkHealth} disabled={checking} title="ตรวจสอบระบบอีกครั้ง">
+            <span className={health?.ok ? "status-dot online" : "status-dot"} />
+            {checking ? "กำลังเชื่อมต่อ" : health?.ok ? "พร้อมใช้งาน" : "ตรวจสอบระบบ"}
+            <RotateCcw size={12} />
+          </button>
         </div>
       </header>
-
-      {/* ── Hero Section ── */}
-      <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 pt-10 pb-24 hero-glow">
-        <div className="text-center max-w-2xl mx-auto mb-8">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-violet-100 text-violet-800 text-xs font-semibold mb-4 border border-violet-200">
-            <Sparkles size={13} className="text-violet-600" />
-            ดาวน์โหลดฟรี • ไม่มีลายน้ำ • รองรับทุกลิงค์
+      <main>
+        <section className="intro">
+          <div className="eyebrow">
+            <span /> A LITTLE TOOL FOR YOUR EVERYDAY
           </div>
-
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-slate-900 leading-tight">
-            ดาวน์โหลดวิดีโอ & เพลง
-            <span className="block mt-1 bg-gradient-to-r from-violet-600 via-purple-600 to-pink-500 bg-clip-text text-transparent">
-              ได้จากทุกลิงค์ในคลิกเดียว
+          <h1>
+            เจอคลิปที่ใช่
+            <br />
+            เก็บไว้
+            <span className="accent-word">
+              ดูทีหลัง
+              <svg viewBox="0 0 240 14" aria-hidden="true">
+                <path d="M3 10 Q115 -1 236 8" />
+              </svg>
             </span>
           </h1>
-
-          <p className="mt-3 text-sm sm:text-base text-slate-500">
-            รองรับ TikTok (ไม่มีลายน้ำ), YouTube, Facebook, Instagram, Twitter / X และกว่า 1,000 เว็บ
+          <p>
+            วางลิงก์ เลือกรูปแบบ แล้วบันทึกไว้ในเครื่อง
+            <br className="mobile-break" /> วิดีโอหรือแค่เสียงเพลงก็ได้
           </p>
-        </div>
-
-        {/* ── Input Card ── */}
-        <div className="bg-white rounded-3xl p-3 sm:p-4 shadow-xl shadow-slate-200/70 border border-slate-200/90 transition-all focus-within:border-violet-400 focus-within:ring-4 focus-within:ring-violet-100">
-          <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row items-center gap-2">
-            <div className="relative flex-1 w-full flex items-center">
-              <input
-                ref={inputRef}
-                type="text"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="วางลิงค์วิดีโอที่นี่ (เช่น TikTok, YouTube, Facebook, IG)..."
-                className="w-full bg-transparent pl-4 pr-10 py-3.5 text-slate-900 placeholder:text-slate-400 text-sm sm:text-base font-normal outline-none"
-                autoFocus
-              />
-
-              {url && (
-                <button
-                  type="button"
-                  onClick={handleClear}
-                  className="absolute right-3 p-1 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
-                  title="ล้างข้อความ"
-                >
-                  <X size={18} />
-                </button>
-              )}
+        </section>
+        <div className="workspace">
+          <section className="download-panel" aria-label="ดาวน์โหลดวิดีโอ">
+            <div className="panel-heading">
+              <span className="section-kicker">01 / เริ่มจากลิงก์</span>
+              <Link2 size={18} />
             </div>
-
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              {!url && (
-                <button
-                  type="button"
-                  onClick={handlePaste}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-3.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium transition active:scale-95 border border-slate-200"
-                >
-                  <ClipboardPaste size={16} />
-                  <span>วางลิงค์</span>
-                </button>
-              )}
-
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void fetchVideo(url);
+              }}
+            >
+              <label htmlFor="video-url">ลิงก์วิดีโอของคุณ</label>
+              <div className="url-field">
+                <Link2 size={18} />
+                <input
+                  id="video-url"
+                  ref={input}
+                  type="url"
+                  placeholder="https://www.youtube.com/watch?v=…"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  onPaste={(e) => {
+                    const pasted = e.clipboardData.getData("text").trim();
+                    if (!/^https?:\/\//i.test(pasted)) return;
+                    e.preventDefault();
+                    clear();
+                    setUrl(pasted);
+                  }}
+                  disabled={status === "downloading"}
+                  required
+                  autoComplete="off"
+                />
+                {url ? (
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label="ล้างลิงก์"
+                    onClick={clear}
+                    disabled={status === "downloading"}
+                  >
+                    <X size={17} />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="paste-button"
+                    onClick={async () => {
+                      try {
+                        setUrl(await navigator.clipboard.readText());
+                        input.current?.focus();
+                      } catch {
+                        setNotice("ใช้ Ctrl+V หรือกดค้างในช่องเพื่อวางลิงก์");
+                        input.current?.focus();
+                      }
+                    }}
+                  >
+                    <Clipboard size={14} />
+                    วาง
+                  </button>
+                )}
+              </div>
               <button
-                type="submit"
-                disabled={!url.trim() || status === "loading"}
-                className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-7 py-3.5 rounded-2xl text-white font-semibold text-sm sm:text-base shadow-lg shadow-violet-300/50 transition-all duration-200 ${
-                  !url.trim() || status === "loading"
-                    ? "bg-slate-300 cursor-not-allowed shadow-none"
-                    : "bg-gradient-to-r from-violet-600 via-purple-600 to-pink-500 hover:opacity-95 hover:shadow-violet-400/60 active:scale-95"
-                }`}
+                className="primary-button inspect-button"
+                disabled={busy || !url.trim() || checking || !health?.ok}
               >
                 {status === "loading" ? (
                   <>
-                    <Loader2 size={18} className="animate-spin" />
-                    <span>กำลังดึงข้อมูล...</span>
+                    <LoaderCircle className="spin" size={18} />
+                    กำลังตรวจลิงก์…
                   </>
                 ) : (
                   <>
-                    <Download size={18} />
-                    <span>ดาวน์โหลด</span>
+                    ดูตัวเลือกดาวน์โหลด
+                    <ArrowUpRight size={19} />
                   </>
                 )}
               </button>
+            </form>
+            <div className="supported">
+              <span>ใช้ได้กับ</span>
+              <span>YouTube</span>
+              <span>TikTok</span>
+              <span>Instagram</span>
+              <span>Facebook</span>
+              <span>+ อื่น ๆ</span>
             </div>
-          </form>
-
-          {/* Auto-detected platform badge */}
-          {detectedPlatform && (
-            <div className="pt-2 px-2 flex items-center gap-1.5 text-xs text-violet-700 font-medium animate-in fade-in">
-              <Sparkles size={13} className="text-violet-500" />
-              <span>ตรวจพบลิงค์: <strong>{detectedPlatform}</strong></span>
-            </div>
-          )}
-        </div>
-
-        {/* ── Platform Badges ── */}
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-2 sm:gap-3">
-          {PLATFORMS.map((p) => (
-            <div
-              key={p.name}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${p.color}`}
-            >
-              <span>{p.name}</span>
-              <span className="opacity-70 text-[10px] font-normal">({p.badge})</span>
-            </div>
-          ))}
-          <span className="text-xs text-slate-400 font-medium px-2 py-1">+1,000 แพลตฟอร์ม</span>
-        </div>
-
-        {/* ── Error Banner ── */}
-        {error && (
-          <div className="mt-6 p-4 rounded-2xl bg-rose-50 border border-rose-200 flex items-start gap-3 text-rose-800 animate-in fade-in slide-in-from-top-2">
-            <AlertTriangle className="shrink-0 text-rose-600 mt-0.5" size={20} />
-            <div className="flex-1 text-sm">
-              <p className="font-semibold text-rose-900">ไม่สามารถดาวน์โหลดได้</p>
-              <p className="mt-0.5 text-rose-700">{error}</p>
-              <div className="mt-2.5 flex items-center gap-2">
-                <button
-                  onClick={() => fetchVideo(url)}
-                  className="px-3 py-1 rounded-lg bg-rose-200/80 hover:bg-rose-300 text-rose-900 text-xs font-semibold transition"
-                >
-                  ลองอีกครั้ง
-                </button>
-                <button
-                  onClick={handleClear}
-                  className="px-3 py-1 rounded-lg bg-white border border-rose-200 text-rose-800 text-xs font-semibold hover:bg-rose-50 transition"
-                >
-                  ลองใช้ลิงค์อื่น
+            {!checking && !health?.ok && (
+              <div className="message warning" role="alert">
+                <strong>ยังเชื่อมต่อระบบดาวน์โหลดไม่ได้</strong>
+                <span>
+                  {desktop
+                    ? "ตรวจสอบว่าติดตั้ง yt-dlp แล้ว จากนั้นกดตรวจสอบระบบ"
+                    : "ตรวจสอบว่าเซิร์ฟเวอร์ทำงานและติดตั้ง yt-dlp แล้ว จากนั้นลองเชื่อมต่ออีกครั้ง"}
+                </span>
+                <button onClick={checkHealth}>
+                  เชื่อมต่ออีกครั้ง <RotateCcw size={13} />
                 </button>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Loading Skeleton ── */}
-        {status === "loading" && (
-          <div className="mt-8 bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-lg shadow-slate-100 flex flex-col md:flex-row gap-6 animate-pulse">
-            <div className="w-full md:w-72 aspect-video bg-slate-200 rounded-2xl shrink-0" />
-            <div className="flex-1 flex flex-col justify-center space-y-4">
-              <div className="h-5 bg-slate-200 rounded-lg w-3/4" />
-              <div className="h-4 bg-slate-200 rounded-lg w-1/3" />
-              <div className="flex flex-wrap gap-2.5 pt-2">
-                <div className="h-11 w-36 bg-slate-200 rounded-xl" />
-                <div className="h-11 w-32 bg-slate-200 rounded-xl" />
-                <div className="h-11 w-32 bg-slate-200 rounded-xl" />
+            )}
+            {health?.ok && !health.ffmpeg && (
+              <p className="dependency-note">ยังไม่มี FFmpeg — บางความละเอียดและการแปลง MP3 จะใช้งานไม่ได้</p>
+            )}
+            {error && (
+              <div className="message error" role="alert">
+                <strong>ยังทำรายการไม่สำเร็จ</strong>
+                <span>{error}</span>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Metadata / Result Card ── */}
-        {metadata && status === "ready" && (
-          <div className="mt-8 bg-white rounded-3xl p-5 sm:p-7 border border-slate-200 shadow-xl shadow-slate-200/60 transition-all animate-in fade-in slide-in-from-bottom-3">
-            <div className="flex flex-col md:flex-row gap-6">
-              {/* Thumbnail */}
-              <div className="relative w-full md:w-80 aspect-video rounded-2xl overflow-hidden bg-slate-900 shrink-0 shadow-md">
-                {metadata.thumbnail ? (
-                  <img
-                    src={metadata.thumbnail}
-                    alt={metadata.title}
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      e.currentTarget.style.display = "none";
-                    }}
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-slate-500">
-                    <Film size={36} />
-                  </div>
-                )}
-
-                {metadata.duration && metadata.duration > 0 && (
-                  <div className="absolute bottom-2.5 right-2.5 px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-sm text-white text-xs font-semibold flex items-center gap-1 shadow">
-                    <Clock size={11} />
-                    {formatDuration(metadata.duration)}
-                  </div>
-                )}
-
-                <div className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-md bg-white/90 backdrop-blur-sm text-slate-900 text-xs font-bold shadow">
-                  {metadata.platform || "Video"}
-                </div>
+            )}
+            {notice && (
+              <div className="message notice" role="status">
+                <Check size={17} />
+                <span>{notice}</span>
               </div>
-
-              {/* Details & Actions */}
-              <div className="flex-1 flex flex-col justify-between">
+            )}
+            {status === "loading" && (
+              <div className="loading-result" role="status">
+                <div className="skeleton" />
                 <div>
-                  <h2 className="text-base sm:text-lg font-bold text-slate-900 line-clamp-2 leading-snug">
-                    {metadata.title}
-                  </h2>
-
-                  {metadata.channel && (
-                    <p className="text-xs sm:text-sm text-slate-500 mt-1 font-medium flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-violet-500 inline-block"></span>
-                      {metadata.channel}
-                    </p>
-                  )}
+                  <strong>กำลังอ่านข้อมูลวิดีโอ</strong>
+                  <p>บางแพลตฟอร์มอาจใช้เวลาสักครู่</p>
+                  <button className="text-button" onClick={cancel}>
+                    ยกเลิก
+                  </button>
                 </div>
-
-                {/* Download Buttons Section */}
-                <div className="mt-5">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2.5">
-                    เลือกรูปแบบไฟล์ที่ต้องการดาวน์โหลด:
-                  </p>
-
-                  <div className="flex flex-wrap gap-2.5">
-                    {metadata.qualities.map((q) => {
-                      const isDownloading = activeDownloadId === q.id;
-                      const isMp3 = q.ext === "mp3";
-                      const isNoWm = q.id === "no_watermark";
-                      const isCopied = copiedId === q.id;
-
-                      return (
-                        <div key={q.id} className="flex items-center gap-1">
-                          <button
-                            onClick={() => handleDownload(q)}
-                            disabled={isDownloading}
-                            className={`flex items-center gap-2 px-4 py-3 rounded-xl font-medium text-xs sm:text-sm shadow-sm transition-all duration-150 active:scale-95 ${
-                              isNoWm
-                                ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white hover:from-violet-700 hover:to-purple-700 shadow-violet-200"
-                                : isMp3
-                                ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600 shadow-amber-200"
-                                : "bg-slate-900 text-white hover:bg-slate-800 shadow-slate-200"
-                            }`}
-                          >
-                            {isDownloading ? (
-                              <Loader2 size={16} className="animate-spin" />
-                            ) : isMp3 ? (
-                              <Music size={16} />
-                            ) : (
-                              <Download size={16} />
-                            )}
-                            <span>{q.label}</span>
-                          </button>
-
-                          {/* Quick copy link for IDM or sharing */}
-                          <button
-                            onClick={() => handleCopyLink(q)}
-                            title="คัดลอกลิงค์ดาวน์โหลดตรง (สำหรับ IDM หรือแชร์)"
-                            className="p-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition"
-                          >
-                            {isCopied ? <Check size={16} className="text-emerald-600" /> : <Copy size={16} />}
-                          </button>
-                        </div>
-                      );
-                    })}
+              </div>
+            )}
+            {meta && (
+              <div className="result">
+                <div className="section-kicker">02 / เลือกไฟล์ที่ต้องการ</div>
+                <div className="media-preview">
+                  <div className="thumbnail">
+                    {meta.thumbnail ? (
+                      <img
+                        src={meta.thumbnail}
+                        alt=""
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          e.currentTarget.style.display = "none";
+                        }}
+                      />
+                    ) : (
+                      <Film size={32} />
+                    )}
+                    <span>{duration(meta.duration)}</span>
                   </div>
-
-                  {downloadSuccessMsg && (
-                    <div className="mt-3 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-xl flex items-center gap-2 animate-in fade-in">
-                      <CheckCircle2 size={15} className="text-emerald-600 shrink-0" />
-                      <span>{downloadSuccessMsg}</span>
-                    </div>
-                  )}
-
-                  <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between">
+                  <div>
+                    <span className="platform-tag">{platform(sourceUrl.current) || meta.platform}</span>
+                    <h2>{meta.title}</h2>
+                    <p>{meta.channel || "วิดีโอจากลิงก์ของคุณ"}</p>
+                  </div>
+                </div>
+                <fieldset disabled={status === "downloading"}>
+                  <legend>รูปแบบและความละเอียด</legend>
+                  <div className="quality-grid">
+                    {meta.qualities.map((q) => (
+                      <label key={q.id} className={qualityId === q.id ? "quality selected" : "quality"}>
+                        <input
+                          type="radio"
+                          name="quality"
+                          value={q.id}
+                          checked={qualityId === q.id}
+                          onChange={() => setQualityId(q.id)}
+                        />
+                        {q.ext === "mp3" ? <FileAudio size={20} /> : <Film size={20} />}
+                        <span>
+                          <strong>{q.label}</strong>
+                          <small>
+                            {q.ext.toUpperCase()}
+                            {q.direct_url ? " · เปิดไฟล์ต้นทาง" : ""}
+                          </small>
+                        </span>
+                        <span className="radio-mark">{qualityId === q.id && <Check size={11} />}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                {desktop && (
+                  <div className="folder-row">
+                    <FolderOpen size={17} />
+                    <span title={folder}>{folder}</span>
                     <button
-                      onClick={handleClear}
-                      className="text-xs text-slate-400 hover:text-slate-600 font-medium flex items-center gap-1.5 transition"
+                      className="text-button"
+                      disabled={busy}
+                      onClick={async () => {
+                        try {
+                          const chosen = await invoke<string | null>("select_folder", { defaultDir: folder });
+                          if (chosen) setFolder(chosen);
+                        } catch (err) {
+                          setError(errorMessage(err));
+                        }
+                      }}
                     >
-                      <RotateCcw size={13} />
-                      ดาวน์โหลดวิดีโอรายการอื่น
+                      เปลี่ยน
                     </button>
                   </div>
+                )}
+                {status === "downloading" ? (
+                  <div className="download-state" role="status">
+                    <div>
+                      <LoaderCircle className="spin" size={18} />
+                      <span>{progress?.message || "กำลังดาวน์โหลดและเตรียมไฟล์…"}</span>
+                      <button className="text-button" onClick={cancel}>
+                        ยกเลิก
+                      </button>
+                    </div>
+                    {desktop && progress && (
+                      <progress value={Math.min(100, Math.max(0, progress.progress))} max={100} />
+                    )}
+                    <small>เปิดหน้านี้ไว้จนกว่าจะรับไฟล์ครบ</small>
+                  </div>
+                ) : (
+                  <button className="primary-button" onClick={download} disabled={!selected}>
+                    {selected?.direct_url ? <ArrowUpRight size={18} /> : <ArrowDown size={18} />}
+                    {selected?.direct_url ? "เปิดไฟล์ต้นทาง" : "บันทึก " + (selected?.ext.toUpperCase() || "ไฟล์")}
+                  </button>
+                )}
+                {desktop && notice && (
+                  <button
+                    className="text-button open-folder"
+                    onClick={async () => {
+                      try {
+                        await invoke("open_folder", { path: folder });
+                      } catch (err) {
+                        setError(errorMessage(err));
+                      }
+                    }}
+                  >
+                    <FolderOpen size={15} />
+                    เปิดโฟลเดอร์
+                  </button>
+                )}
+              </div>
+            )}
+            {!meta && status !== "loading" && (
+              <div className="empty-result">
+                <div className="file-stack" aria-hidden="true">
+                  <div className="paper-back" />
+                  <div className="paper-front">
+                    <Film size={25} />
+                    <span>YOUR NEXT SAVE</span>
+                    <i />
+                    <i />
+                  </div>
+                  <span className="file-stamp">
+                    <ArrowDown size={21} />
+                  </span>
                 </div>
+                <p>คลิปถัดไปที่จะเก็บไว้ เริ่มตรงนี้</p>
+                <span>ตัวเลือกไฟล์จะแสดงหลังจากตรวจลิงก์</span>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Recent Downloads Section (If available) ── */}
-        {recentDownloads.length > 0 && status === "idle" && (
-          <div className="mt-12 bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2 text-slate-700 font-bold text-sm">
-                <History size={16} className="text-violet-600" />
-                <span>ประวัติดาวน์โหลดล่าสุด</span>
+            )}
+          </section>
+          <aside className="side-column">
+            <section className="how-to">
+              <div className="note-heading">
+                <span>ใช้ง่าย แค่ 3 ขั้นตอน</span>
+                <span className="note-cross">✳</span>
               </div>
+              <ol>
+                <li>
+                  <span>1</span>
+                  <div>
+                    <strong>คัดลอกลิงก์</strong>
+                    <p>จากปุ่มแชร์ของวิดีโอที่คุณต้องการ</p>
+                  </div>
+                </li>
+                <li>
+                  <span>2</span>
+                  <div>
+                    <strong>เลือกแบบที่ชอบ</strong>
+                    <p>เก็บทั้งภาพและเสียง หรือเลือก MP3</p>
+                  </div>
+                </li>
+                <li>
+                  <span>3</span>
+                  <div>
+                    <strong>เก็บไว้ในเครื่อง</strong>
+                    <p>รอเตรียมไฟล์ แล้วบันทึกได้เลย</p>
+                  </div>
+                </li>
+              </ol>
+              <div className="note-footer">
+                น้อยขั้นตอน มากเวลาให้คลิปโปรด
+                <ArrowUpRight size={16} />
+              </div>
+            </section>
+            <section className="small-print">
+              <span>GOOD TO KNOW</span>
+              <p>บางคลิปอาจต้องเข้าสู่ระบบ หรือถูกจำกัดจากต้นทาง เราจะแจ้งให้ทราบเมื่อดาวน์โหลดไม่ได้</p>
+              <p>บันทึกเฉพาะสื่อที่คุณมีสิทธิ์ดาวน์โหลด</p>
+            </section>
+          </aside>
+        </div>
+        <section className="history-section" aria-labelledby="history-title">
+          <div className="history-heading">
+            <h2 id="history-title">
+              <Clock3 size={18} />
+              เก็บไว้ล่าสุด <span>{recent.length.toString().padStart(2, "0")}</span>
+            </h2>
+            {recent.length > 0 && (
               <button
-                onClick={clearRecent}
-                className="text-xs text-slate-400 hover:text-rose-600 flex items-center gap-1 transition"
+                className="text-button"
+                onClick={() => {
+                  setRecent([]);
+                  try {
+                    localStorage.removeItem(storageKey);
+                  } catch {}
+                }}
               >
-                <Trash2 size={12} />
-                <span>ล้างประวัติ</span>
+                <Trash2 size={14} />
+                ล้างประวัติ
               </button>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {recentDownloads.map((item) => (
-                <div
+            )}
+          </div>
+          {recent.length ? (
+            <div className="history-list">
+              {recent.map((item) => (
+                <button
+                  disabled={busy}
                   key={item.id}
                   onClick={() => {
-                    setUrl(item.url);
-                    fetchVideo(item.url);
+                    void fetchVideo(item.url);
+                    input.current?.scrollIntoView({ behavior: "smooth", block: "center" });
                   }}
-                  className="flex items-center gap-3 p-2.5 rounded-2xl hover:bg-slate-50 border border-slate-100 cursor-pointer transition group"
+                  className="history-item"
                 >
-                  <div className="w-16 aspect-video rounded-lg overflow-hidden bg-slate-900 shrink-0">
-                    <img src={item.thumbnail} alt="" className="w-full h-full object-cover" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-slate-800 line-clamp-1 group-hover:text-violet-600 transition">
-                      {item.title}
-                    </p>
-                    <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
-                      <span>{item.platform}</span>
-                      <span>•</span>
-                      <span>{item.date}</span>
-                    </div>
-                  </div>
-                  <ExternalLink size={13} className="text-slate-300 group-hover:text-violet-500 shrink-0 mr-1" />
-                </div>
+                  <span className="history-file">
+                    {item.ext === "mp3" ? <FileAudio size={21} /> : <Film size={21} />}
+                  </span>
+                  <span className="history-copy">
+                    <strong>{item.title}</strong>
+                    <small>
+                      {item.platform} · {item.ext.toUpperCase()} ·{" "}
+                      {new Date(item.date).toLocaleDateString("th-TH", { day: "numeric", month: "short" })}
+                    </small>
+                  </span>
+                  <ArrowUpRight size={17} />
+                </button>
               ))}
             </div>
-          </div>
-        )}
-
-        {/* ── How to use (Default State) ── */}
-        {status === "idle" && (
-          <div className="mt-12">
-            <h3 className="text-center text-sm font-bold uppercase tracking-wider text-slate-400 mb-6">
-              วิธีใช้งานง่ายๆ ใน 3 ขั้นตอน
-            </h3>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm flex flex-col items-center text-center">
-                <div className="w-12 h-12 rounded-2xl bg-violet-50 text-violet-600 flex items-center justify-center font-bold text-lg mb-3">
-                  1
-                </div>
-                <h4 className="font-semibold text-slate-900 text-sm">คัดลอกลิงค์วิดีโอ</h4>
-                <p className="text-xs text-slate-500 mt-1">
-                  เปิดคลิป TikTok หรือ YouTube ที่ต้องการ แล้วกดแชร์เพื่อคัดลอกลิงค์
-                </p>
-              </div>
-
-              <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm flex flex-col items-center text-center">
-                <div className="w-12 h-12 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center font-bold text-lg mb-3">
-                  2
-                </div>
-                <h4 className="font-semibold text-slate-900 text-sm">วางลิงค์ในกล่องค้นหา</h4>
-                <p className="text-xs text-slate-500 mt-1">
-                  กดปุ่ม "วางลิงค์" ด้านบน หรือกด Ctrl + V เพื่อใส่ลิงค์ได้ทันที
-                </p>
-              </div>
-
-              <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm flex flex-col items-center text-center">
-                <div className="w-12 h-12 rounded-2xl bg-pink-50 text-pink-600 flex items-center justify-center font-bold text-lg mb-3">
-                  3
-                </div>
-                <h4 className="font-semibold text-slate-900 text-sm">กดดาวน์โหลดไฟล์</h4>
-                <p className="text-xs text-slate-500 mt-1">
-                  เลือกความชัด MP4 ไม่มีลายน้ำ หรือแยกเฉพาะเสียงเพลง MP3
-                </p>
-              </div>
-            </div>
-
-            {/* Feature Highlights */}
-            <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4 pt-6 border-t border-slate-200/60">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 shrink-0">
-                  <ShieldCheck size={20} />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold text-slate-900">ไม่มีลายน้ำ 100%</p>
-                  <p className="text-[11px] text-slate-500">คลิป TikTok ใส ไม่มีโลโก้บัง</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-violet-50 text-violet-600 shrink-0">
-                  <Zap size={20} />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold text-slate-900">ความเร็วสูงพิเศษ</p>
-                  <p className="text-[11px] text-slate-500">ดาวน์โหลดตรงผ่าน CDN เซิร์ฟเวอร์</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-amber-50 text-amber-600 shrink-0">
-                  <Music size={20} />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold text-slate-900">แยกไฟล์เสียง MP3</p>
-                  <p className="text-[11px] text-slate-500">โหลดเฉพาะเสียงเพลงคมชัด 320kbps</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+          ) : (
+            <p className="history-empty">
+              ยังไม่มีรายการ — ไฟล์ที่รับสำเร็จจะแสดงที่นี่ ประวัติเก็บในอุปกรณ์นี้เท่านั้น
+            </p>
+          )}
+        </section>
       </main>
-
-      {/* ── Footer ── */}
-      <footer className="bg-white border-t border-slate-200 py-6 px-4 text-center">
-        <p className="text-xs text-slate-500">
-          Vetch101 - Video Downloader • ขับเคลื่อนด้วย yt-dlp & TikWM • ปลอดภัย ไม่เก็บประวัติส่วนตัว
-        </p>
+      <footer>
+        <span className="footer-brand">vetch101.</span>
+        <span>เครื่องมือเล็ก ๆ สำหรับสิ่งที่อยากเก็บไว้</span>
+        <span>MADE FOR EVERYDAY USE ↗</span>
       </footer>
     </div>
   );

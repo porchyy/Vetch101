@@ -49,9 +49,18 @@ pub fn parse_stdout_line(line: &str) -> Option<DownloadProgressPayload> {
         });
 
         if let Some(caps) = re.captures(trimmed) {
-            let percent: f32 = caps.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0.0);
-            let speed = caps.get(2).map(|m| m.as_str().to_string()).unwrap_or_else(|| "-".into());
-            let eta = caps.get(3).map(|m| m.as_str().to_string()).unwrap_or_else(|| "-".into());
+            let percent: f32 = caps
+                .get(1)
+                .and_then(|m| m.as_str().parse().ok())
+                .unwrap_or(0.0);
+            let speed = caps
+                .get(2)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_else(|| "-".into());
+            let eta = caps
+                .get(3)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_else(|| "-".into());
 
             return Some(DownloadProgressPayload {
                 progress: percent,

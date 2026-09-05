@@ -18,7 +18,8 @@ crate-type = ["staticlib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# This app has no native About menu; avoid its ComCtl32 v6 import in test executables.
+tauri = { version = "2", default-features = false, features = ["wry", "compression", "dynamic-acl", "x11", "dbus"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -27,4 +28,3 @@ regex = "1"
 rfd = "0.15"
 open = "5"
 dirs = "6"
-
