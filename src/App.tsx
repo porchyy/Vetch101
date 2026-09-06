@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { parseVideoUrl } from "./video-url";
+import { initialVideoInput, videoInputReducer, type AppError, type Status, type VideoMetadata } from "./video-input";
+import { parseDroppedVideoUrl, parseVideoUrl } from "./video-url";
 import {
   AlertCircle,
   ArrowDown,
@@ -18,22 +19,6 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-
-interface QualityOption {
-  id: string;
-  label: string;
-  ext: string;
-  format_spec: string;
-}
-
-interface VideoMetadata {
-  id: string;
-  title: string;
-  thumbnail: string;
-  duration?: number;
-  channel?: string;
-  qualities: QualityOption[];
-}
 
 interface DownloadProgressPayload {
   progress: number;
@@ -63,11 +48,6 @@ interface RecentItem {
   ext: string;
   date: number;
   filename?: string;
-}
-
-interface AppError {
-  summary: string;
-  detail?: string;
 }
 
 const HISTORY_STORAGE_KEY = "vetch101_history_v3";
@@ -102,14 +82,15 @@ function formatDuration(seconds?: number): string {
 }
 
 export default function App() {
-  const [url, setUrl] = useState("");
-  const [meta, setMeta] = useState<VideoMetadata | null>(null);
-  const [selectedQualityId, setSelectedQualityId] = useState("");
+  const [{ url, meta, selectedQualityId, status, error }, dispatchInput] = useReducer(videoInputReducer, initialVideoInput);
+  const revision = useRef(0);
+  const setStatus = (status: Status) => dispatchInput({ type: "patch", patch: { status } });
+  const setError = (error: AppError | null) => dispatchInput({ type: "patch", patch: { error } });
+  const setSelectedQualityId = (selectedQualityId: string) => dispatchInput({ type: "patch", patch: { selectedQualityId } });
   const [folder, setFolder] = useState<string>(() => {
     return localStorage.getItem(FOLDER_STORAGE_KEY) || "";
   });
 
-  const [status, setStatus] = useState<"idle" | "checking" | "ready" | "downloading" | "completed">("idle");
   const [progress, setProgress] = useState<DownloadProgressPayload | null>(null);
   const [savedFile, setSavedFile] = useState<string | null>(null);
 
@@ -118,7 +99,6 @@ export default function App() {
   const [updatingYtdlp, setUpdatingYtdlp] = useState(false);
   const [updateMsg, setUpdateMsg] = useState<string | null>(null);
 
-  const [error, setError] = useState<AppError | null>(null);
   const [notice, setNotice] = useState("");
 
   const [recent, setRecent] = useState<RecentItem[]>(() => {
@@ -134,6 +114,7 @@ export default function App() {
 
   const inputRef = useRef<HTMLInputElement>(null);
   const downloadLock = useRef(false);
+  const updateLock = useRef(false);
 
   // 1. Initial dependency check and default directory resolution
   const refreshDependencies = useCallback(async () => {
@@ -178,7 +159,8 @@ export default function App() {
 
   // Update yt-dlp binary
   const handleUpdateYtdlp = async () => {
-    if (downloadLock.current || updatingYtdlp) return;
+    if (downloadLock.current || updateLock.current || status === "checking") return;
+    updateLock.current = true;
     setUpdatingYtdlp(true);
     setUpdateMsg(null);
     setError(null);
@@ -192,6 +174,7 @@ export default function App() {
         detail: String(e),
       });
     } finally {
+      updateLock.current = false;
       setUpdatingYtdlp(false);
     }
   };
@@ -228,34 +211,45 @@ export default function App() {
     }
   };
 
-  // Handle URL paste: replace previous content and trim cleanly
-  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-    const text = e.clipboardData.getData("text").trim();
-    if (!text) return;
-    e.preventDefault();
-    setUrl(text);
-    setError(null);
+  const changeUrl = (value: string) => {
+    if (downloadLock.current) return;
+    revision.current += 1;
+    dispatchInput({ type: "change", url: value });
     setNotice("");
-    setMeta(null);
-    setStatus("idle");
+    setProgress(null);
+    setSavedFile(null);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    changeUrl(e.clipboardData.getData("text").trim());
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (downloadLock.current || status === "checking" || e.dataTransfer.files.length) return;
+    try {
+      const droppedUrl = parseDroppedVideoUrl(
+        e.dataTransfer.getData("text/uri-list"),
+        e.dataTransfer.getData("text/plain"),
+      );
+      changeUrl(droppedUrl);
+      inputRef.current?.focus();
+    } catch (err) {
+      setError({ summary: err instanceof Error ? err.message : String(err) });
+    }
   };
 
   // Clear current input and state
   const handleClear = () => {
     if (downloadLock.current) return;
-    setUrl("");
-    setMeta(null);
-    setStatus("idle");
-    setError(null);
-    setNotice("");
-    setProgress(null);
-    setSavedFile(null);
+    changeUrl("");
     inputRef.current?.focus();
   };
 
   // Inspect video URL
   const handleInspectUrl = async (urlToInspect?: string) => {
-    if (downloadLock.current) return;
+    if (downloadLock.current || updateLock.current) return;
     const target = (urlToInspect ?? url).trim();
 
     let cleanUrl = "";
@@ -269,34 +263,26 @@ export default function App() {
       return;
     }
 
-    setUrl(cleanUrl);
-    setStatus("checking");
-    setError(null);
+    const request = ++revision.current;
+    dispatchInput({ type: "inspect", url: cleanUrl, revision: request });
     setNotice("");
-    setMeta(null);
     setProgress(null);
     setSavedFile(null);
 
     try {
       const metadata = await invoke<VideoMetadata>("fetch_metadata", { url: cleanUrl });
-      setMeta(metadata);
-      if (metadata.qualities.length > 0) {
-        setSelectedQualityId(metadata.qualities[0].id);
-      }
-      setStatus("ready");
+      dispatchInput({ type: "success", revision: request, meta: metadata });
     } catch (err) {
-      const raw = String(err);
-      setStatus("idle");
-      setError({
+      dispatchInput({ type: "failure", revision: request, error: {
         summary: "ไม่สามารถดึงข้อมูลวิดีโอจากลิงก์นี้ได้",
-        detail: raw,
-      });
+        detail: String(err),
+      } });
     }
   };
 
   // Start download
   const handleStartDownload = async () => {
-    if (!meta || downloadLock.current || status === "downloading") return;
+    if (!meta || downloadLock.current || updateLock.current || status !== "ready") return;
     const selected = meta.qualities.find((q) => q.id === selectedQualityId);
     if (!selected) {
       setError({ summary: "กรุณาเลือกความละเอียดหรือรูปแบบไฟล์ที่ต้องการ" });
@@ -376,7 +362,17 @@ export default function App() {
   const selectedQuality = meta?.qualities.find((q) => q.id === selectedQualityId);
 
   return (
-    <div className="app-shell">
+    <div
+      className="app-shell"
+      onDragOver={(e) => {
+        e.preventDefault();
+        const types = e.dataTransfer.types;
+        e.dataTransfer.dropEffect = !downloadLock.current && status !== "checking"
+          && !types.includes("Files") && (types.includes("text/uri-list") || types.includes("text/plain"))
+          ? "copy" : "none";
+      }}
+      onDrop={handleDrop}
+    >
       {/* Header bar */}
       <header className="app-header">
         <div className="header-left">
@@ -406,7 +402,7 @@ export default function App() {
               <button
                 className="button-icon-subtle"
                 onClick={handleUpdateYtdlp}
-                disabled={updatingYtdlp || status === "downloading"}
+                disabled={updatingYtdlp || status === "downloading" || status === "checking"}
                 title="ตรวจสอบและอัปเดต yt-dlp เป็นเวอร์ชันล่าสุด"
               >
                 <RefreshCw size={13} className={updatingYtdlp ? "spin" : ""} />
@@ -447,9 +443,9 @@ export default function App() {
               ref={inputRef}
               type="text"
               className="url-input"
-              placeholder="วางลิงก์ เช่น https://www.youtube.com/watch?v=..."
+              placeholder="วางหรือลากลิงก์วิดีโอมาที่หน้าต่างนี้"
               value={url}
-              onChange={(e) => setUrl(e.target.value)}
+              onChange={(e) => changeUrl(e.target.value)}
               onPaste={handlePaste}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && url.trim() && status !== "downloading" && status !== "checking") {
@@ -478,9 +474,10 @@ export default function App() {
                 className="action-text-btn"
                 onClick={async () => {
                   try {
+                    const pasteRevision = revision.current;
                     const clipboardText = await navigator.clipboard.readText();
-                    if (clipboardText) {
-                      setUrl(clipboardText.trim());
+                    if (clipboardText && revision.current === pasteRevision) {
+                      changeUrl(clipboardText.trim());
                       inputRef.current?.focus();
                     }
                   } catch {
@@ -497,7 +494,7 @@ export default function App() {
             <button
               type="button"
               className="btn btn-primary"
-              disabled={status === "downloading" || status === "checking" || !url.trim()}
+              disabled={updatingYtdlp || status === "downloading" || status === "checking" || !url.trim()}
               onClick={() => handleInspectUrl()}
             >
               {status === "checking" ? (
@@ -701,7 +698,7 @@ export default function App() {
                     type="button"
                     className="btn btn-primary btn-lg download-btn"
                     onClick={handleStartDownload}
-                    disabled={!selectedQuality}
+                    disabled={updatingYtdlp || !selectedQuality || status !== "ready"}
                   >
                     <ArrowDown size={18} />
                     บันทึก {selectedQuality?.label || "ไฟล์"}
@@ -770,7 +767,6 @@ export default function App() {
                     className="btn btn-secondary btn-sm"
                     disabled={status === "downloading"}
                     onClick={() => {
-                      setUrl(item.url);
                       void handleInspectUrl(item.url);
                       window.scrollTo({ top: 0, behavior: "smooth" });
                     }}

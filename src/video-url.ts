@@ -1,3 +1,8 @@
+export function parseDroppedVideoUrl(uriList: string, text: string): string {
+  const links = uriList.split(/\r?\n/).filter((line) => line.trim() && !line.trimStart().startsWith("#"));
+  return parseVideoUrl(links.length ? links.join("\n") : text);
+}
+
 export function parseVideoUrl(value: string): string {
   const clean = value.trim();
   if (!clean) {

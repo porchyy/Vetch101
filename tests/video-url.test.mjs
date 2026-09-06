@@ -1,7 +1,18 @@
 // Run with: node --experimental-strip-types --test tests/video-url.test.mjs
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseVideoUrl } from "../src/video-url.ts";
+import { parseDroppedVideoUrl, parseVideoUrl } from "../src/video-url.ts";
+
+test("dropped links and text use the URL guard without silently selecting one of multiple links", () => {
+  const url = "https://example.com/วิดีโอ.mp4";
+  assert.equal(parseDroppedVideoUrl(`# title\r\n${url}\r\n`, "Video title"), url);
+  assert.equal(parseDroppedVideoUrl("", ` ${url} `), url);
+  assert.equal(parseDroppedVideoUrl("# comment only", url), url);
+  for (const invalid of [`${url}\nhttps://example.org/`, `${url}https://example.org/`, "file:///C:/video.mp4", "javascript:alert(1)", "some text", ""]) {
+    assert.throws(() => parseDroppedVideoUrl(invalid, ""));
+    assert.throws(() => parseDroppedVideoUrl("", invalid));
+  }
+});
 
 test("reject concatenated links without rejecting a URL in query parameters", () => {
   const tiktok = "https://www.tiktok.com/@anpahtda/video/7663913857580092692";
