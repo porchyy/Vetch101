@@ -1,16 +1,34 @@
 # Vetch101
 
-แอปพลิเคชัน Windows สำหรับดาวน์โหลดวิดีโอและเสียง (MP3/MP4) สำหรับใช้งานส่วนตัว พัฒนาด้วย Tauri v2 + React 19 + Rust โดยทำงานแบบ Standalone ไม่ต้องเปิด Node server, Terminal หรือเบราว์เซอร์
+[![Release](https://img.shields.io/github/v/release/porchyy/Vetch101?color=blue&logo=github)](https://github.com/porchyy/Vetch101/releases/latest)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20(x64)-blue?logo=windows)](https://github.com/porchyy/Vetch101/releases)
+[![Tauri](https://img.shields.io/badge/Tauri-v2-FFC131?logo=tauri&logoColor=white)](https://v2.tauri.app/)
+[![Rust](https://img.shields.io/badge/Rust-2021-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+
+แอปพลิเคชัน Windows สำหรับดาวน์โหลดวิดีโอและเสียง (MP4 / MP3) สำหรับใช้งานส่วนตัว พัฒนาด้วย **Tauri v2 + React 19 + Rust** ทำงานแบบ **100% Standalone** โดยตรงบนคอมพิวเตอร์ของคุณ ไม่ต้องเปิด Command Prompt, Terminal หรือรัน Background Server ใดๆ
 
 ---
 
-## 🚀 การเปิดใช้งาน
+## 📦 ดาวน์โหลดเวอร์ชันล่าสุด (Downloads)
+
+ดาวน์โหลดได้ที่หน้า [GitHub Releases v0.1.0](https://github.com/porchyy/Vetch101/releases/tag/v0.1.0):
+
+| รูปแบบการติดตั้ง | ชนิดไฟล์ | ลิงก์ดาวน์โหลดโดยตรง | รายละเอียด |
+| :--- | :---: | :---: | :--- |
+| **All-in-One Portable (แนะนำ)** | `.zip` | [ดาวน์โหลด Portable ZIP](https://github.com/porchyy/Vetch101/releases/download/v0.1.0/Vetch101_0.1.0_x64-portable.zip) | แตกไฟล์แล้วเปิด `Vetch101.exe` ใช้งานได้ทันที มี `yt-dlp` และ `FFmpeg` ในตัว |
+| **Setup Wizard** | `.exe` | [ดาวน์โหลด Setup Installer](https://github.com/porchyy/Vetch101/releases/download/v0.1.0/Vetch101_0.1.0_x64-setup.exe) | ตัวติดตั้งมาตรฐาน สร้างไอคอนบน Desktop และ Start Menu อัตโนมัติ |
+| **Windows Installer** | `.msi` | [ดาวน์โหลด MSI Package](https://github.com/porchyy/Vetch101/releases/download/v0.1.0/Vetch101_0.1.0_x64_en-US.msi) | ตัวติดตั้งสำหรับระบบ Enterprise / Windows Installer |
+
+---
+
+## 🚀 การเปิดใช้งาน (สำหรับผู้พัฒนา / ผู้ใช้ในเครื่อง)
 
 เปิดใช้งานได้ 3 วิธีตามความสะดวก:
 
 1. **เปิดตรงจากไฟล์ .exe**: ดับเบิลคลิก `Vetch101.exe` ที่โฟลเดอร์หลักของโปรเจกต์ หรือใน `dist-desktop\Vetch101.exe`
 2. **รันผ่าน Batch Script**: ดับเบิลคลิก `start.bat` หรือ `quick-run.bat`
-3. **ติดตั้งลงในเครื่อง (ตัวเลือกเสริม)**: ดับเบิลคลิกไฟล์ติดตั้งในโฟลเดอร์ `dist-desktop\`:
+3. **ติดตั้งลงในเครื่อง**: ดับเบิลคลิกไฟล์ติดตั้งในโฟลเดอร์ `dist-desktop\`:
    - `Vetch101_0.1.0_x64-setup.exe` (NSIS Setup Wizard)
    - `Vetch101_0.1.0_x64_en-US.msi` (Windows Installer MSI)
 
