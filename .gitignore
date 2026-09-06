@@ -9,11 +9,9 @@ lerna-debug.log*
 
 # Dependencies
 node_modules/
-server/node_modules/
 
 # Frontend builds
 dist/
-dist-ssr/
 *.local
 
 # Binaries & Executables
@@ -39,6 +37,7 @@ src-tauri/gen/schemas/
 temp/
 downloads/
 *.tmp
+.agents/
 
 # Editor directories and files
 .vscode/*
