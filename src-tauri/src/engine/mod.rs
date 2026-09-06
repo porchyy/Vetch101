@@ -2,6 +2,8 @@ pub mod detector;
 pub mod downloader;
 pub mod metadata;
 pub mod parser;
+#[cfg(windows)]
+pub mod process_job;
 
 pub fn validate_url(value: &str) -> Result<String, String> {
     let trimmed = value.trim();

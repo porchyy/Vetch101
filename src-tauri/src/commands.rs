@@ -5,6 +5,7 @@ use crate::models::{DependencyStatus, VideoMetadata};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, State};
+use tauri_plugin_notification::NotificationExt;
 
 #[tauri::command]
 pub async fn check_dependencies() -> Result<DependencyStatus, String> {
@@ -26,17 +27,14 @@ pub async fn check_dependencies() -> Result<DependencyStatus, String> {
 
 #[tauri::command]
 pub async fn update_ytdlp(state: State<'_, Arc<DownloadManager>>) -> Result<String, String> {
-    if state.inner().is_active() {
-        return Err("ไม่สามารถอัปเดตระหว่างมีงานดาวน์โหลดทำงานอยู่ได้".into());
-    }
-
-    let binaries = tokio::task::spawn_blocking(get_binaries)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    tokio::task::spawn_blocking(move || update_ytdlp_tool(&binaries))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
+    let job = state.inner().begin()?;
+    tokio::task::spawn_blocking(move || {
+        let binaries = get_binaries();
+        job.check_cancelled()?;
+        update_ytdlp_tool(&binaries)
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))?
 }
 
 #[tauri::command]
@@ -81,7 +79,18 @@ pub async fn start_download(
     download_dir: String,
 ) -> Result<(), String> {
     let manager = state.inner().clone();
-    run_download(app, manager, url, format_spec, download_dir).await
+    run_download(app.clone(), manager, url, format_spec, download_dir).await?;
+    // Notification failure must not turn a verified download into a failed job.
+    if let Err(error) = app
+        .notification()
+        .builder()
+        .title("Vetch101 — ดาวน์โหลดเสร็จแล้ว")
+        .body("บันทึกไฟล์เรียบร้อยแล้ว เปิดโฟลเดอร์ปลายทางได้จากแอป")
+        .show()
+    {
+        eprintln!("Could not show download notification: {error}");
+    }
+    Ok(())
 }
 
 #[tauri::command]
