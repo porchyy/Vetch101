@@ -78,6 +78,11 @@ if ($ClosePid -gt 0) {
     exit 0
 }
 
+$existingVetch = Get-Process vetch101,Vetch101 -ErrorAction SilentlyContinue
+if ($existingVetch) {
+    Write-Warning "Existing Vetch101 process(es) detected ($($existingVetch.Id -join ', ')). Concurrent WebView2 instances sharing the user data folder may cause delays or lock contention."
+}
+
 foreach ($directory in $Directories) {
     $exe = Join-Path $directory 'Vetch101.exe'
     if (!(Test-Path -LiteralPath (Join-Path $directory 'WebView2Loader.dll') -PathType Leaf)) {
@@ -86,7 +91,7 @@ foreach ($directory in $Directories) {
     # Launch the actual GUI deliberately; only this newly started idle test process is closed.
     $app = Start-Process -FilePath $exe -WorkingDirectory $directory -PassThru
     try {
-        $deadline = [DateTime]::UtcNow.AddSeconds(25)
+        $deadline = [DateTime]::UtcNow.AddSeconds(30)
         $targetHwnd = [IntPtr]::Zero
         do {
             Start-Sleep -Milliseconds 200
@@ -101,12 +106,15 @@ foreach ($directory in $Directories) {
         if (!$closed) {
             $closed = $app.CloseMainWindow()
         }
-        if (!$closed -or !$app.WaitForExit(25000)) { throw "Close/cleanup timed out: $exe" }
+        if (!$closed -or !$app.WaitForExit(30000)) { throw "Close/cleanup timed out: $exe" }
         if ($app.ExitCode -ne 0) { throw "Close failed ($($app.ExitCode)): $exe" }
         Write-Host "PASS launch + graceful close: $exe"
+        Start-Sleep -Milliseconds 500
     } finally {
         if (!$app.HasExited) { Write-Warning "Test process $($app.Id) remains open; inspect it before retrying." }
         $app.Dispose()
     }
 }
+
+exit 0
 
