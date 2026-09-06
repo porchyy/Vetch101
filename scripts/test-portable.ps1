@@ -1,4 +1,7 @@
-param([string[]]$Directories = @((Split-Path -Parent $PSScriptRoot), (Join-Path (Split-Path -Parent $PSScriptRoot) 'dist-desktop')))
+param(
+    [string[]]$Directories = @((Split-Path -Parent $PSScriptRoot), (Join-Path (Split-Path -Parent $PSScriptRoot) 'dist-desktop')),
+    [int]$ClosePid = 0
+)
 $ErrorActionPreference = 'Stop'
 
 if (-not ('NativeMethods' -as [type])) {
@@ -49,6 +52,32 @@ if (-not ('NativeMethods' -as [type])) {
 
 $expectedTitle = 'Vetch101 - Video Downloader'
 
+function Get-VetchWindow([int]$ProcessId, [string]$Title) {
+    $proc = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    if ($proc -and $proc.MainWindowTitle -eq $Title -and $proc.MainWindowHandle -ne [IntPtr]::Zero) {
+        return $proc.MainWindowHandle
+    }
+    return [NativeMethods]::FindWindowByProcessAndTitle($ProcessId, $Title)
+}
+
+if ($ClosePid -gt 0) {
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    $targetHwnd = [IntPtr]::Zero
+    do {
+        $targetHwnd = Get-VetchWindow -ProcessId $ClosePid -Title $expectedTitle
+        if ($targetHwnd -eq [IntPtr]::Zero) { Start-Sleep -Milliseconds 100 }
+    } while ($targetHwnd -eq [IntPtr]::Zero -and [DateTime]::UtcNow -lt $deadline)
+
+    if ($targetHwnd -eq [IntPtr]::Zero) { throw "Expected main window was not found for PID: $ClosePid" }
+    $closed = [NativeMethods]::PostMessage($targetHwnd, [NativeMethods]::WM_CLOSE, [IntPtr]::Zero, [IntPtr]::Zero)
+    if (!$closed) {
+        $proc = Get-Process -Id $ClosePid -ErrorAction SilentlyContinue
+        if ($proc) { $closed = $proc.CloseMainWindow() }
+    }
+    if (!$closed) { throw "Failed to dispatch close message to PID: $ClosePid" }
+    exit 0
+}
+
 foreach ($directory in $Directories) {
     $exe = Join-Path $directory 'Vetch101.exe'
     if (!(Test-Path -LiteralPath (Join-Path $directory 'WebView2Loader.dll') -PathType Leaf)) {
@@ -62,11 +91,7 @@ foreach ($directory in $Directories) {
         do {
             Start-Sleep -Milliseconds 200
             $app.Refresh()
-            if ($app.MainWindowTitle -eq $expectedTitle -and $app.MainWindowHandle -ne [IntPtr]::Zero) {
-                $targetHwnd = $app.MainWindowHandle
-            } else {
-                $targetHwnd = [NativeMethods]::FindWindowByProcessAndTitle($app.Id, $expectedTitle)
-            }
+            $targetHwnd = Get-VetchWindow -ProcessId $app.Id -Title $expectedTitle
         } while (!$app.HasExited -and $targetHwnd -eq [IntPtr]::Zero -and [DateTime]::UtcNow -lt $deadline)
 
         if ($app.HasExited) { throw "Launch failed ($($app.ExitCode)): $exe" }

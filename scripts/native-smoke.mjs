@@ -127,7 +127,7 @@ for (const mode of ["close", "crash"]) {
     const ffmpegPid = await startDownload();
     assert.ok(isAlive(ffmpegPid));
     if (mode === "crash") app.kill(); // Only owner; /T would invalidate the Job Object test.
-    else execFileSync("powershell.exe", ["-NoProfile", "-Command", `if (!(Get-Process -Id ${app.pid}).CloseMainWindow()) { exit 1 }`], { windowsHide: true });
+    else execFileSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(project, "scripts/test-portable.ps1"), "-ClosePid", String(app.pid)], { windowsHide: true });
     await until(() => app.exitCode !== null || app.signalCode !== null, "app exit", 20000);
     if (mode === "close") assert.equal(app.exitCode, 0);
     await until(() => !isAlive(ffmpegPid), `${mode} FFmpeg cleanup`);
