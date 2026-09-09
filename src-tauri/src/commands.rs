@@ -64,6 +64,37 @@ pub fn open_folder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn open_file(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err("ไม่พบไฟล์ดังกล่าวในเครื่อง".into());
+    }
+    open::that(p).map_err(|e| format!("ไม่สามารถเปิดไฟล์ {}: {}", path, e))
+}
+
+#[tauri::command]
+pub fn reveal_in_folder(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err("ไม่พบไฟล์หรือโฟลเดอร์ดังกล่าว".into());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let mut cmd = std::process::Command::new("explorer.exe");
+        cmd.arg(format!("/select,{}", path));
+        cmd.creation_flags(0x08000000);
+        cmd.spawn().map_err(|e| format!("ไม่สามารถเปิด Explorer: {}", e))?;
+        return Ok(());
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let folder = if p.is_dir() { p } else { p.parent().unwrap_or(p) };
+        open::that(folder).map_err(|e| format!("ไม่สามารถเปิดโฟลเดอร์: {}", e))
+    }
+}
+
+#[tauri::command]
 pub async fn fetch_metadata(url: String) -> Result<VideoMetadata, String> {
     tokio::task::spawn_blocking(move || fetch_video_metadata(&url))
         .await

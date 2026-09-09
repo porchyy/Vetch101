@@ -112,6 +112,7 @@ pub fn is_valid_format_spec(format_spec: &str) -> bool {
             | "bestaudio/best"
             | "best[ext=mp4]"
             | "best[ext=mp4]/best"
+            | "thumbnail"
     )
 }
 
@@ -179,16 +180,20 @@ pub async fn run_download(
         "--retries",
         "3",
         "--no-overwrites",
-        "-f",
-        &format_spec,
-        "-o",
     ]);
 
+    if format_spec == "thumbnail" {
+        cmd.args(["--write-thumbnail", "--skip-download", "--convert-thumbnails", "jpg"]);
+    } else {
+        cmd.args(["-f", &format_spec]);
+    }
+
+    cmd.arg("-o");
     cmd.arg(template);
 
     if format_spec == "bestaudio/best" {
-        cmd.args(["-x", "--audio-format", "mp3"]);
-    } else if binaries.ffmpeg_path.is_some() {
+        cmd.args(["-x", "--audio-format", "mp3", "--embed-thumbnail", "--add-metadata"]);
+    } else if binaries.ffmpeg_path.is_some() && format_spec != "thumbnail" {
         cmd.args(["--merge-output-format", "mp4", "--remux-video", "mp4"]);
     }
 
@@ -295,8 +300,18 @@ pub async fn run_download(
 
     let exit_status = result?;
     if exit_status.success() {
-        let final_path_guard = final_path_arc.lock().await;
-        verify_output(final_path_guard.as_deref().map(Path::new))
+        let mut final_path_guard = final_path_arc.lock().await;
+        let mut path_buf = final_path_guard.as_deref().map(PathBuf::from);
+        if format_spec == "thumbnail" {
+            if let Some(ref p) = path_buf {
+                let jpg_candidate = p.with_extension("jpg");
+                if jpg_candidate.exists() {
+                    *final_path_guard = Some(jpg_candidate.to_string_lossy().to_string());
+                    path_buf = Some(jpg_candidate);
+                }
+            }
+        }
+        verify_output(path_buf.as_deref())
     } else {
         Err(if message.is_empty() {
             "ดาวน์โหลดไม่สำเร็จ กรุณาลองใหม่อีกครั้ง".into()
@@ -445,6 +460,7 @@ mod tests {
         assert!(is_valid_format_spec("bestaudio/best"));
         assert!(is_valid_format_spec("best[ext=mp4]"));
         assert!(is_valid_format_spec("best[ext=mp4]/best"));
+        assert!(is_valid_format_spec("thumbnail"));
 
         // Valid legacy formats
         assert!(is_valid_format_spec("bestvideo[height<=720]+bestaudio/best[height<=720]"));

@@ -3,6 +3,7 @@ export interface QualityOption {
   label: string;
   ext: string;
   format_spec: string;
+  filesize_approx?: number | null;
 }
 
 export interface VideoMetadata {
@@ -11,6 +12,7 @@ export interface VideoMetadata {
   thumbnail: string;
   duration?: number;
   channel?: string;
+  filesize_approx?: number | null;
   qualities: QualityOption[];
 }
 

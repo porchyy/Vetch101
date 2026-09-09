@@ -48,6 +48,8 @@ pub fn run() {
             get_default_download_dir,
             select_folder,
             open_folder,
+            open_file,
+            reveal_in_folder,
             fetch_metadata,
             start_download,
             cancel_download

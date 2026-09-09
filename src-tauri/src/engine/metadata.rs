@@ -85,7 +85,12 @@ pub fn fetch_video_metadata(url: &str) -> Result<VideoMetadata, String> {
 
     let id = v["id"].as_str().unwrap_or("").to_string();
     let title = v["title"].as_str().unwrap_or("ไม่มีชื่อคลิป").to_string();
-    let thumbnail = v["thumbnail"].as_str().unwrap_or("").to_string();
+    let thumbnail = v["thumbnails"]
+        .as_array()
+        .and_then(|arr| arr.iter().filter_map(|t| t["url"].as_str()).last())
+        .map(|s| s.to_string())
+        .or_else(|| v["thumbnail"].as_str().map(|s| s.to_string()))
+        .unwrap_or_default();
     let duration = v["duration"].as_f64();
     let channel = v["channel"]
         .as_str()
@@ -103,12 +108,15 @@ pub fn fetch_video_metadata(url: &str) -> Result<VideoMetadata, String> {
         return Err("ไม่พบรูปแบบที่สามารถดาวน์โหลดได้จากคลิปนี้".into());
     }
 
+    let filesize_approx = qualities.iter().find_map(|q| q.filesize_approx);
+
     Ok(VideoMetadata {
         id,
         title,
         thumbnail,
         duration,
         channel,
+        filesize_approx,
         qualities,
     })
 }
@@ -120,12 +128,62 @@ fn format_spec_for_dim(dim: u64) -> String {
     )
 }
 
+fn estimate_filesize(formats: &[Value], duration: Option<f64>, target_dim: Option<u64>, is_audio: bool) -> Option<u64> {
+    if is_audio {
+        let audio_f = formats.iter().find(|f| f["vcodec"].as_str() == Some("none") && f["acodec"].as_str() != Some("none"));
+        if let Some(f) = audio_f {
+            if let Some(size) = f["filesize"].as_u64().or_else(|| f["filesize_approx"].as_u64()) {
+                return Some(size);
+            }
+            if let (Some(tbr), Some(dur)) = (f["tbr"].as_f64().or_else(|| f["abr"].as_f64()), duration) {
+                return Some((tbr * 1000.0 / 8.0 * dur) as u64);
+            }
+        }
+    } else if let Some(dim) = target_dim {
+        let video_f = formats.iter().find(|f| {
+            let h = f["height"].as_u64().unwrap_or(0);
+            let w = f["width"].as_u64().unwrap_or(0);
+            let d = if w > 0 && h > 0 { w.min(h) } else { h.max(w) };
+            d <= dim && f["vcodec"].as_str() != Some("none")
+        });
+        if let Some(f) = video_f {
+            if let Some(size) = f["filesize"].as_u64().or_else(|| f["filesize_approx"].as_u64()) {
+                if f["acodec"].as_str() == Some("none") {
+                    let audio_size = duration.map(|d| (128_000.0 / 8.0 * d) as u64).unwrap_or(0);
+                    return Some(size + audio_size);
+                }
+                return Some(size);
+            }
+            if let (Some(tbr), Some(dur)) = (f["tbr"].as_f64(), duration) {
+                return Some((tbr * 1000.0 / 8.0 * dur) as u64);
+            }
+        }
+    } else {
+        let best_f = formats
+            .iter()
+            .filter(|f| f["vcodec"].as_str() != Some("none"))
+            .max_by_key(|f| f["tbr"].as_f64().unwrap_or(0.0) as u64);
+        if let Some(f) = best_f {
+            if let Some(size) = f["filesize"].as_u64().or_else(|| f["filesize_approx"].as_u64()) {
+                return Some(size);
+            }
+            if let (Some(tbr), Some(dur)) = (f["tbr"].as_f64(), duration) {
+                return Some((tbr * 1000.0 / 8.0 * dur) as u64);
+            }
+        }
+    }
+    None
+}
+
 pub fn determine_qualities(v: &Value, has_ffmpeg: bool) -> Vec<QualityOption> {
     let mut qualities = Vec::new();
+    let duration = v["duration"].as_f64();
+    let empty_formats = Vec::new();
+    let formats = v["formats"].as_array().unwrap_or(&empty_formats);
 
     // Determine max available video dimension using the shorter edge min(width, height)
     // to accurately represent resolution for both landscape (16:9) and portrait/vertical (9:16) videos.
-    let (has_video, max_dim) = if let Some(formats) = v["formats"].as_array() {
+    let (has_video, max_dim) = if !formats.is_empty() {
         let has_v = formats.iter().any(|f| f["vcodec"].as_str() != Some("none"));
         let max_d = formats
             .iter()
@@ -155,6 +213,7 @@ pub fn determine_qualities(v: &Value, has_ffmpeg: bool) -> Vec<QualityOption> {
                     label: "4K UHD (2160p)".into(),
                     ext: "mp4".into(),
                     format_spec: format_spec_for_dim(2160),
+                    filesize_approx: estimate_filesize(formats, duration, Some(2160), false),
                 });
             }
             if max_dim >= 1440 {
@@ -163,6 +222,7 @@ pub fn determine_qualities(v: &Value, has_ffmpeg: bool) -> Vec<QualityOption> {
                     label: "2K QHD (1440p)".into(),
                     ext: "mp4".into(),
                     format_spec: format_spec_for_dim(1440),
+                    filesize_approx: estimate_filesize(formats, duration, Some(1440), false),
                 });
             }
             if max_dim >= 1080 {
@@ -171,6 +231,7 @@ pub fn determine_qualities(v: &Value, has_ffmpeg: bool) -> Vec<QualityOption> {
                     label: "Full HD (1080p)".into(),
                     ext: "mp4".into(),
                     format_spec: format_spec_for_dim(1080),
+                    filesize_approx: estimate_filesize(formats, duration, Some(1080), false),
                 });
             }
             if max_dim >= 720 {
@@ -179,6 +240,7 @@ pub fn determine_qualities(v: &Value, has_ffmpeg: bool) -> Vec<QualityOption> {
                     label: "HD (720p)".into(),
                     ext: "mp4".into(),
                     format_spec: format_spec_for_dim(720),
+                    filesize_approx: estimate_filesize(formats, duration, Some(720), false),
                 });
             }
             if max_dim >= 480 {
@@ -187,6 +249,7 @@ pub fn determine_qualities(v: &Value, has_ffmpeg: bool) -> Vec<QualityOption> {
                     label: "SD (480p)".into(),
                     ext: "mp4".into(),
                     format_spec: format_spec_for_dim(480),
+                    filesize_approx: estimate_filesize(formats, duration, Some(480), false),
                 });
             }
             if max_dim >= 360 && max_dim < 480 {
@@ -195,6 +258,7 @@ pub fn determine_qualities(v: &Value, has_ffmpeg: bool) -> Vec<QualityOption> {
                     label: "SD (360p)".into(),
                     ext: "mp4".into(),
                     format_spec: format_spec_for_dim(360),
+                    filesize_approx: estimate_filesize(formats, duration, Some(360), false),
                 });
             }
 
@@ -204,6 +268,7 @@ pub fn determine_qualities(v: &Value, has_ffmpeg: bool) -> Vec<QualityOption> {
                 label: "ความละเอียดสูงสุดที่มี (Best)".into(),
                 ext: "mp4".into(),
                 format_spec: "bestvideo+bestaudio/best".into(),
+                filesize_approx: estimate_filesize(formats, duration, None, false),
             });
         }
 
@@ -213,6 +278,7 @@ pub fn determine_qualities(v: &Value, has_ffmpeg: bool) -> Vec<QualityOption> {
             label: "เสียงเท่านั้น (MP3)".into(),
             ext: "mp3".into(),
             format_spec: "bestaudio/best".into(),
+            filesize_approx: estimate_filesize(formats, duration, None, true),
         });
     } else {
         // Without FFmpeg, can only download pre-merged progressive MP4
@@ -221,8 +287,18 @@ pub fn determine_qualities(v: &Value, has_ffmpeg: bool) -> Vec<QualityOption> {
             label: "ต้นฉบับ MP4 (ไม่ต้องใช้ FFmpeg)".into(),
             ext: "mp4".into(),
             format_spec: "best[ext=mp4]/best".into(),
+            filesize_approx: estimate_filesize(formats, duration, None, false),
         });
     }
+
+    // High-resolution image/thumbnail download option
+    qualities.push(QualityOption {
+        id: "thumbnail".into(),
+        label: "รูปภาพปกความละเอียดสูงสุด (Image)".into(),
+        ext: "jpg".into(),
+        format_spec: "thumbnail".into(),
+        filesize_approx: None,
+    });
 
     qualities
 }
@@ -277,9 +353,31 @@ mod tests {
         });
 
         let qualities = determine_qualities(&v, false);
-        assert_eq!(qualities.len(), 1);
+        assert_eq!(qualities.len(), 2);
         assert_eq!(qualities[0].id, "best");
         assert_eq!(qualities[0].format_spec, "best[ext=mp4]/best");
+        assert_eq!(qualities[1].id, "thumbnail");
+    }
+
+    #[test]
+    fn test_thumbnail_option_and_filesize_estimation() {
+        let v = json!({
+            "duration": 120.0,
+            "formats": [
+                {"format_id": "audio", "vcodec": "none", "acodec": "aac", "filesize": 2_000_000},
+                {"format_id": "v720", "width": 1280, "height": 720, "vcodec": "h264", "acodec": "none", "filesize": 10_000_000}
+            ]
+        });
+
+        let qualities = determine_qualities(&v, true);
+        assert!(qualities.iter().any(|q| q.id == "thumbnail" && q.format_spec == "thumbnail"));
+
+        let q_audio = qualities.iter().find(|q| q.id == "audio").unwrap();
+        assert_eq!(q_audio.filesize_approx, Some(2_000_000));
+
+        let q_720 = qualities.iter().find(|q| q.id == "720").unwrap();
+        assert!(q_720.filesize_approx.is_some());
     }
 }
+
 

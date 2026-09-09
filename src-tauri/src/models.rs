@@ -6,6 +6,8 @@ pub struct QualityOption {
     pub label: String,
     pub ext: String,
     pub format_spec: String,
+    #[serde(default)]
+    pub filesize_approx: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,6 +17,8 @@ pub struct VideoMetadata {
     pub thumbnail: String,
     pub duration: Option<f64>,
     pub channel: Option<String>,
+    #[serde(default)]
+    pub filesize_approx: Option<u64>,
     pub qualities: Vec<QualityOption>,
 }
 

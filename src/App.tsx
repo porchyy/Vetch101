@@ -10,15 +10,19 @@ import {
   Check,
   Clipboard,
   Clock3,
+  Copy,
   FileAudio,
   Film,
   FolderOpen,
+  Image as ImageIcon,
   Link2,
   LoaderCircle,
+  Play,
   RefreshCw,
   Trash2,
   X,
 } from "lucide-react";
+import { formatBytes } from "./history";
 
 interface DownloadProgressPayload {
   progress: number;
@@ -48,6 +52,8 @@ interface RecentItem {
   ext: string;
   date: number;
   filename?: string;
+  filepath?: string;
+  filesize?: number | null;
 }
 
 const HISTORY_STORAGE_KEY = "vetch101_history_v3";
@@ -312,6 +318,8 @@ export default function App() {
       setNotice("บันทึกไฟล์เรียบร้อยแล้ว");
 
       // Save to local history
+      const finalName = savedFile || `${meta.title}.${selected.ext}`;
+      const finalPath = folder ? `${folder}\\${finalName}` : undefined;
       const item: RecentItem = {
         id: meta.id || String(Date.now()),
         title: meta.title,
@@ -319,11 +327,13 @@ export default function App() {
         platform: detectPlatform(url),
         ext: selected.ext,
         date: Date.now(),
-        filename: savedFile || `${meta.title}.${selected.ext}`,
+        filename: finalName,
+        filepath: finalPath,
+        filesize: selected.filesize_approx,
       };
 
       setRecent((prev) => {
-        const next = [item, ...prev.filter((x) => x.url !== url)].slice(0, 10);
+        const next = [item, ...prev.filter((x) => x.url !== url)].slice(0, 50);
         try {
           localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(next));
         } catch {}
@@ -357,6 +367,47 @@ export default function App() {
         detail: String(e),
       });
     }
+  };
+
+  // History quick actions
+  const handleOpenFile = async (filepath?: string) => {
+    if (!filepath) return;
+    try {
+      await invoke("open_file", { path: filepath });
+    } catch (e) {
+      setError({
+        summary: "ไม่สามารถเปิดไฟล์ได้",
+        detail: String(e),
+      });
+    }
+  };
+
+  const handleRevealFolder = async (filepath?: string) => {
+    if (!filepath) return;
+    try {
+      await invoke("reveal_in_folder", { path: filepath });
+    } catch {
+      if (folder) {
+        await invoke("open_folder", { path: folder }).catch(() => {});
+      }
+    }
+  };
+
+  const handleCopyLink = async (urlStr: string) => {
+    try {
+      await navigator.clipboard.writeText(urlStr);
+      setNotice("คัดลอกลิงก์ต้นทางเรียบร้อยแล้ว");
+    } catch {}
+  };
+
+  const handleRemoveHistoryItem = (date: number) => {
+    setRecent((prev) => {
+      const next = prev.filter((x) => x.date !== date);
+      try {
+        localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
   };
 
   const selectedQuality = meta?.qualities.find((q) => q.id === selectedQualityId);
@@ -571,6 +622,9 @@ export default function App() {
                 {meta.duration && meta.duration > 0 && (
                   <span className="duration-tag">{formatDuration(meta.duration)}</span>
                 )}
+                {meta.filesize_approx ? (
+                  <span className="filesize-tag">{formatBytes(meta.filesize_approx)}</span>
+                ) : null}
               </div>
 
               <div className="video-info">
@@ -589,6 +643,7 @@ export default function App() {
                 {meta.qualities.map((q) => {
                   const isSelected = selectedQualityId === q.id;
                   const isAudio = q.ext === "mp3";
+                  const isImage = q.ext === "jpg";
                   return (
                     <label
                       key={q.id}
@@ -605,10 +660,17 @@ export default function App() {
                         onChange={() => setSelectedQualityId(q.id)}
                         disabled={status === "downloading"}
                       />
-                      <div className="quality-icon">{isAudio ? <FileAudio size={20} /> : <Film size={20} />}</div>
+                      <div className="quality-icon">
+                        {isImage ? <ImageIcon size={20} /> : isAudio ? <FileAudio size={20} /> : <Film size={20} />}
+                      </div>
                       <div className="quality-details">
                         <span className="quality-label">{q.label}</span>
-                        <span className="quality-ext">{q.ext.toUpperCase()}</span>
+                        <span className="quality-ext">
+                          {q.ext.toUpperCase()}
+                          {q.filesize_approx ? (
+                            <span className="quality-filesize"> ({formatBytes(q.filesize_approx)})</span>
+                          ) : null}
+                        </span>
                       </div>
                       {isSelected && (
                         <div className="quality-check">
@@ -746,7 +808,13 @@ export default function App() {
               {recent.map((item) => (
                 <div key={`${item.url}-${item.date}`} className="history-item">
                   <div className="history-icon">
-                    {item.ext === "mp3" ? <FileAudio size={18} /> : <Film size={18} />}
+                    {item.ext === "mp3" ? (
+                      <FileAudio size={18} />
+                    ) : item.ext === "jpg" || item.ext === "png" ? (
+                      <ImageIcon size={18} />
+                    ) : (
+                      <Film size={18} />
+                    )}
                   </div>
                   <div className="history-info">
                     <span className="history-item-title" title={item.title}>
@@ -754,6 +822,7 @@ export default function App() {
                     </span>
                     <span className="history-meta">
                       {item.platform} · {item.ext.toUpperCase()} ·{" "}
+                      {item.filesize ? `${formatBytes(item.filesize)} · ` : ""}
                       {new Date(item.date).toLocaleDateString("th-TH", {
                         day: "numeric",
                         month: "short",
@@ -762,18 +831,59 @@ export default function App() {
                       })}
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    disabled={status === "downloading"}
-                    onClick={() => {
-                      void handleInspectUrl(item.url);
-                      window.scrollTo({ top: 0, behavior: "smooth" });
-                    }}
-                    title="โหลดลิงก์นี้อีกครั้ง"
-                  >
-                    โหลดซ้ำ
-                  </button>
+                  <div className="history-actions">
+                    {item.filepath && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => handleOpenFile(item.filepath)}
+                        title="เปิดไฟล์ด้วยโปรแกรมเริ่มต้น"
+                      >
+                        <Play size={13} />
+                        เปิดไฟล์
+                      </button>
+                    )}
+                    {item.filepath && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => handleRevealFolder(item.filepath)}
+                        title="เปิดโฟลเดอร์และชี้ตำแหน่งไฟล์ในเครื่อง"
+                      >
+                        <FolderOpen size={13} />
+                        โฟลเดอร์
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => handleCopyLink(item.url)}
+                      title="คัดลอกลิงก์ต้นทาง"
+                    >
+                      <Copy size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      disabled={status === "downloading"}
+                      onClick={() => {
+                        void handleInspectUrl(item.url);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                      title="โหลดลิงก์นี้อีกครั้ง"
+                    >
+                      <RefreshCw size={13} />
+                      โหลดซ้ำ
+                    </button>
+                    <button
+                      type="button"
+                      className="button-icon-subtle"
+                      onClick={() => handleRemoveHistoryItem(item.date)}
+                      title="ลบรายการนี้ออกจากประวัติ"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
