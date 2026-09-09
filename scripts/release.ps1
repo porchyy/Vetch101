@@ -34,7 +34,7 @@ try {
     # Windows PowerShell represents normal native stderr as ErrorRecord objects.
     $ErrorActionPreference = 'Continue'
     try {
-        & npm.cmd run tauri build 2>&1 | ForEach-Object { $_.ToString() } | Tee-Object -FilePath $log -ErrorAction Stop
+        & npm.cmd run tauri build -- --target $targetTriple 2>&1 | ForEach-Object { $_.ToString() } | Tee-Object -FilePath $log -ErrorAction Stop
         $buildExit = $LASTEXITCODE
     } finally { $ErrorActionPreference = 'Stop' }
     if ($buildExit -ne 0) { throw "Tauri build failed; see $log" }
@@ -62,6 +62,10 @@ try {
         if ((ArtifactHash $copy.Source) -ne (ArtifactHash $copy.Dest)) {
             throw "Copy verification failed: $($copy.Dest)"
         }
+    }
+    $portableZip = Join-Path $dist "Vetch101_${version}_x64-portable.zip"
+    if (Test-Path -LiteralPath (Join-Path $dist "bin")) {
+        tar -a -cf $portableZip -C $dist Vetch101.exe WebView2Loader.dll bin
     }
     & "$PSScriptRoot/test-portable.ps1"
     Write-Host "Release copied and portable launch checked. Installer runtime checks are separate. Log: $log"
