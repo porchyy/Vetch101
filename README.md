@@ -12,13 +12,13 @@
 
 ## 📦 ดาวน์โหลดเวอร์ชันล่าสุด (Downloads)
 
-ดาวน์โหลดได้ที่หน้า [GitHub Releases v0.1.0](https://github.com/porchyy/Vetch101/releases/tag/v0.1.0):
+ดาวน์โหลดได้ที่หน้า [GitHub Releases v0.2.0](https://github.com/porchyy/Vetch101/releases/tag/v0.2.0):
 
 | รูปแบบการติดตั้ง | ชนิดไฟล์ | ลิงก์ดาวน์โหลดโดยตรง | รายละเอียด |
 | :--- | :---: | :---: | :--- |
-| **All-in-One Portable (แนะนำ)** | `.zip` | [ดาวน์โหลด Portable ZIP](https://github.com/porchyy/Vetch101/releases/download/v0.1.0/Vetch101_0.1.0_x64-portable.zip) | แตกไฟล์แล้วเปิด `Vetch101.exe` ใช้งานได้ทันที มี `yt-dlp` และ `FFmpeg` ในตัว |
-| **Setup Wizard** | `.exe` | [ดาวน์โหลด Setup Installer](https://github.com/porchyy/Vetch101/releases/download/v0.1.0/Vetch101_0.1.0_x64-setup.exe) | ตัวติดตั้งมาตรฐาน สร้างไอคอนบน Desktop และ Start Menu อัตโนมัติ |
-| **Windows Installer** | `.msi` | [ดาวน์โหลด MSI Package](https://github.com/porchyy/Vetch101/releases/download/v0.1.0/Vetch101_0.1.0_x64_en-US.msi) | ตัวติดตั้งสำหรับระบบ Enterprise / Windows Installer |
+| **All-in-One Portable (แนะนำ)** | `.zip` | [ดาวน์โหลด Portable ZIP](https://github.com/porchyy/Vetch101/releases/download/v0.2.0/Vetch101_0.2.0_x64-portable.zip) | แตกไฟล์แล้วเปิด `Vetch101.exe` ใช้งานได้ทันที มี `yt-dlp` และ `FFmpeg` ในตัว |
+| **Setup Wizard** | `.exe` | [ดาวน์โหลด Setup Installer](https://github.com/porchyy/Vetch101/releases/download/v0.2.0/Vetch101_0.2.0_x64-setup.exe) | ตัวติดตั้งมาตรฐาน สร้างไอคอนบน Desktop และ Start Menu อัตโนมัติ |
+| **Windows Installer** | `.msi` | [ดาวน์โหลด MSI Package](https://github.com/porchyy/Vetch101/releases/download/v0.2.0/Vetch101_0.2.0_x64_en-US.msi) | ตัวติดตั้งสำหรับระบบ Enterprise / Windows Installer |
 
 ---
 
@@ -29,8 +29,8 @@
 1. **เปิดตรงจากไฟล์ .exe**: ดับเบิลคลิก `Vetch101.exe` ที่โฟลเดอร์หลักของโปรเจกต์ หรือใน `dist-desktop\Vetch101.exe`
 2. **รันผ่าน Batch Script**: ดับเบิลคลิก `start.bat` หรือ `quick-run.bat`
 3. **ติดตั้งลงในเครื่อง**: ดับเบิลคลิกไฟล์ติดตั้งในโฟลเดอร์ `dist-desktop\`:
-   - `Vetch101_0.1.0_x64-setup.exe` (NSIS Setup Wizard)
-   - `Vetch101_0.1.0_x64_en-US.msi` (Windows Installer MSI)
+   - `Vetch101_0.2.0_x64-setup.exe` (NSIS Setup Wizard)
+   - `Vetch101_0.2.0_x64_en-US.msi` (Windows Installer MSI)
 
 ---
 
