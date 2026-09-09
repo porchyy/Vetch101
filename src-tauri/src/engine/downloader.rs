@@ -90,6 +90,31 @@ impl DownloadManager {
     }
 }
 
+pub fn is_valid_format_spec(format_spec: &str) -> bool {
+    matches!(
+        format_spec,
+        // Legacy presets
+        "bestvideo[height<=2160]+bestaudio/best[height<=2160]"
+            | "bestvideo[height<=1440]+bestaudio/best[height<=1440]"
+            | "bestvideo[height<=1080]+bestaudio/best[height<=1080]"
+            | "bestvideo[height<=720]+bestaudio/best[height<=720]"
+            | "bestvideo[height<=480]+bestaudio/best[height<=480]"
+            | "bestvideo[height<=360]+bestaudio/best[height<=360]"
+            // Robust presets (handling both landscape and vertical videos + fallback)
+            | "bestvideo[height<=2160]+bestaudio/bestvideo[width<=2160]+bestaudio/best[height<=2160]/best[width<=2160]/best"
+            | "bestvideo[height<=1440]+bestaudio/bestvideo[width<=1440]+bestaudio/best[height<=1440]/best[width<=1440]/best"
+            | "bestvideo[height<=1080]+bestaudio/bestvideo[width<=1080]+bestaudio/best[height<=1080]/best[width<=1080]/best"
+            | "bestvideo[height<=720]+bestaudio/bestvideo[width<=720]+bestaudio/best[height<=720]/best[width<=720]/best"
+            | "bestvideo[height<=480]+bestaudio/bestvideo[width<=480]+bestaudio/best[height<=480]/best[width<=480]/best"
+            | "bestvideo[height<=360]+bestaudio/bestvideo[width<=360]+bestaudio/best[height<=360]/best[width<=360]/best"
+            // Universal & audio presets
+            | "bestvideo+bestaudio/best"
+            | "bestaudio/best"
+            | "best[ext=mp4]"
+            | "best[ext=mp4]/best"
+    )
+}
+
 pub async fn run_download(
     app: AppHandle,
     manager: Arc<DownloadManager>,
@@ -102,19 +127,7 @@ pub async fn run_download(
     let url = validate_url(&url)?;
 
     // Allowed preset formats
-    let valid_spec = matches!(
-        format_spec.as_str(),
-        "bestvideo[height<=2160]+bestaudio/best[height<=2160]"
-            | "bestvideo[height<=1440]+bestaudio/best[height<=1440]"
-            | "bestvideo[height<=1080]+bestaudio/best[height<=1080]"
-            | "bestvideo[height<=720]+bestaudio/best[height<=720]"
-            | "bestvideo[height<=480]+bestaudio/best[height<=480]"
-            | "bestvideo[height<=360]+bestaudio/best[height<=360]"
-            | "bestvideo+bestaudio/best"
-            | "bestaudio/best"
-            | "best[ext=mp4]"
-    );
-    if !valid_spec {
+    if !is_valid_format_spec(&format_spec) {
         return Err("รูปแบบไฟล์ที่เลือกไม่ถูกต้อง".into());
     }
 
@@ -416,4 +429,30 @@ mod tests {
         std::fs::remove_file(file).unwrap();
         std::fs::remove_dir(dir).unwrap();
     }
+
+    #[test]
+    fn test_is_valid_format_spec() {
+        use super::is_valid_format_spec;
+
+        // Valid robust formats with vertical/fallback support
+        assert!(is_valid_format_spec(
+            "bestvideo[height<=720]+bestaudio/bestvideo[width<=720]+bestaudio/best[height<=720]/best[width<=720]/best"
+        ));
+        assert!(is_valid_format_spec(
+            "bestvideo[height<=1080]+bestaudio/bestvideo[width<=1080]+bestaudio/best[height<=1080]/best[width<=1080]/best"
+        ));
+        assert!(is_valid_format_spec("bestvideo+bestaudio/best"));
+        assert!(is_valid_format_spec("bestaudio/best"));
+        assert!(is_valid_format_spec("best[ext=mp4]"));
+        assert!(is_valid_format_spec("best[ext=mp4]/best"));
+
+        // Valid legacy formats
+        assert!(is_valid_format_spec("bestvideo[height<=720]+bestaudio/best[height<=720]"));
+
+        // Invalid arbitrary inputs
+        assert!(!is_valid_format_spec(""));
+        assert!(!is_valid_format_spec("rm -rf /"));
+        assert!(!is_valid_format_spec("bestvideo; echo hacked"));
+    }
 }
+
