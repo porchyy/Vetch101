@@ -19,10 +19,13 @@ import {
   LoaderCircle,
   Play,
   RefreshCw,
+  Sparkles,
   Trash2,
   X,
 } from "lucide-react";
 import { formatBytes } from "./history";
+import { UpdateBanner } from "./components/UpdateBanner";
+import { createUpdaterState, UpdaterAction, canStartUpdate, type UpdaterState } from "./updater-state";
 
 interface DownloadProgressPayload {
   progress: number;
@@ -182,6 +185,98 @@ export default function App() {
     } finally {
       updateLock.current = false;
       setUpdatingYtdlp(false);
+    }
+  };
+
+  // App updater state & actions
+  const [updaterState, setUpdaterState] = useState<UpdaterState>(createUpdaterState());
+
+  const handleCheckAppUpdate = useCallback(async (manual: boolean = false) => {
+    setUpdaterState(UpdaterAction.check);
+    try {
+      const info = await invoke<{
+        available: boolean;
+        current_version: string;
+        latest_version: string;
+        release_notes: string;
+        setup_url?: string;
+        portable_url?: string;
+        is_installed: boolean;
+      }>("check_app_update");
+
+      if (info.available) {
+        const dismissed = localStorage.getItem("vetch101_dismissed_update");
+        if (!manual && dismissed === info.latest_version) {
+          setUpdaterState(createUpdaterState());
+          return;
+        }
+        setUpdaterState(
+          UpdaterAction.available(createUpdaterState(), {
+            version: info.latest_version,
+            notes: info.release_notes,
+            setupUrl: info.setup_url,
+            portableUrl: info.portable_url,
+            isInstalled: info.is_installed,
+          })
+        );
+      } else {
+        setUpdaterState(createUpdaterState());
+        if (manual) {
+          setNotice(`คุณกำลังใช้งานเวอร์ชันล่าสุดแล้ว (${info.current_version})`);
+        }
+      }
+    } catch (e) {
+      setUpdaterState(createUpdaterState());
+      if (manual) {
+        setNotice(`ไม่สามารถตรวจหาอัปเดตได้: ${String(e)}`);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void handleCheckAppUpdate(false);
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [handleCheckAppUpdate]);
+
+  const handleStartAppUpdate = async () => {
+    const check = canStartUpdate({
+      isDownloading: status === "downloading",
+      isInspecting: status === "checking",
+    });
+    if (!check.allowed) {
+      setNotice(check.reason || "ไม่สามารถอัปเดตได้ในขณะนี้");
+      return;
+    }
+
+    if (updaterState.status !== "available" || !updaterState.setupUrl) {
+      return;
+    }
+
+    setUpdaterState(UpdaterAction.startDownload(updaterState));
+    try {
+      await invoke("install_app_update", { setupUrl: updaterState.setupUrl });
+      setUpdaterState(UpdaterAction.ready(updaterState));
+    } catch (e) {
+      setUpdaterState(UpdaterAction.error(updaterState, String(e)));
+    }
+  };
+
+  const handleDismissAppUpdate = () => {
+    if ("version" in updaterState && updaterState.version) {
+      try {
+        localStorage.setItem("vetch101_dismissed_update", updaterState.version);
+      } catch {}
+    }
+    setUpdaterState(UpdaterAction.dismiss(updaterState));
+  };
+
+  const handleOpenUrl = async (urlStr: string) => {
+    try {
+      await invoke("open_external_url", { url: urlStr });
+    } catch {
+      window.open(urlStr, "_blank");
     }
   };
 
@@ -459,6 +554,15 @@ export default function App() {
                 <RefreshCw size={13} className={updatingYtdlp ? "spin" : ""} />
                 {updatingYtdlp ? "กำลังอัปเดต" : "อัปเดต yt-dlp"}
               </button>
+              <button
+                className="button-icon-subtle"
+                onClick={() => handleCheckAppUpdate(true)}
+                disabled={updaterState.status === "checking" || updaterState.status === "downloading" || status === "downloading"}
+                title="ตรวจหาอัปเดตแอป Vetch101"
+              >
+                <Sparkles size={13} className={updaterState.status === "checking" ? "spin" : ""} />
+                {updaterState.status === "checking" ? "กำลังตรวจแอป" : "ตรวจอัปเดตแอป"}
+              </button>
             </div>
           ) : (
             <span className="status-pill status-warning" title="ไม่พบโปรแกรม yt-dlp หรือ FFmpeg ในเครื่อง">
@@ -471,6 +575,15 @@ export default function App() {
 
       {/* Main workspace */}
       <main className="main-content">
+        <UpdateBanner
+          state={updaterState}
+          isDownloading={status === "downloading"}
+          isInspecting={status === "checking"}
+          onStartUpdate={handleStartAppUpdate}
+          onDismiss={handleDismissAppUpdate}
+          onOpenExternalUrl={handleOpenUrl}
+        />
+
         {updateMsg && (
           <div className="alert alert-info">
             <Check size={16} />

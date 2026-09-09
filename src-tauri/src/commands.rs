@@ -1,7 +1,8 @@
 use crate::engine::detector::{get_binaries, update_ytdlp_tool};
 use crate::engine::downloader::{run_download, DownloadManager};
 use crate::engine::metadata::fetch_video_metadata;
-use crate::models::{DependencyStatus, VideoMetadata};
+use crate::engine::updater::{check_github_release, download_installer, launch_installer_and_exit};
+use crate::models::{AppUpdateInfo, DependencyStatus, VideoMetadata};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, State};
@@ -128,3 +129,33 @@ pub async fn start_download(
 pub async fn cancel_download(state: State<'_, Arc<DownloadManager>>) -> Result<(), String> {
     state.inner().cancel().await
 }
+
+#[tauri::command]
+pub async fn check_app_update() -> Result<AppUpdateInfo, String> {
+    let current_version = env!("CARGO_PKG_VERSION");
+    tokio::task::spawn_blocking(move || {
+        check_github_release(current_version)
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))?
+}
+
+#[tauri::command]
+pub async fn install_app_update(
+    state: State<'_, Arc<DownloadManager>>,
+    setup_url: String,
+) -> Result<(), String> {
+    let _job = state.inner().begin()?;
+    tokio::task::spawn_blocking(move || {
+        let installer_path = download_installer(&setup_url)?;
+        launch_installer_and_exit(&installer_path)
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))?
+}
+
+#[tauri::command]
+pub fn open_external_url(url: String) -> Result<(), String> {
+    open::that(&url).map_err(|e| format!("ไม่สามารถเปิดลิงก์ {}: {}", url, e))
+}
+

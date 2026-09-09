@@ -2,6 +2,7 @@ pub mod detector;
 pub mod downloader;
 pub mod metadata;
 pub mod parser;
+pub mod updater;
 #[cfg(windows)]
 pub mod process_job;
 

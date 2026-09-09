@@ -43,3 +43,14 @@ pub struct DependencyStatus {
     pub ytdlp_version: Option<String>,
     pub app_bin_dir: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppUpdateInfo {
+    pub available: bool,
+    pub current_version: String,
+    pub latest_version: String,
+    pub release_notes: String,
+    pub setup_url: Option<String>,
+    pub portable_url: Option<String>,
+    pub is_installed: bool,
+}

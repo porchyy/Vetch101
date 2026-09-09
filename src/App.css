@@ -916,3 +916,143 @@ input {
     align-items: flex-start;
   }
 }
+
+/* Update Banner */
+.update-banner {
+  background: #ffffff;
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-md);
+  padding: 10px 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  animation: slideDown 0.25s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.update-banner-available {
+  background: #fdfbf7;
+  border-color: #f2d8b3;
+}
+
+.update-banner-downloading {
+  background: #f4f8fa;
+  border-color: #bee3f8;
+}
+
+.update-banner-ready {
+  background: var(--success-bg);
+  border-color: var(--success-border);
+}
+
+.update-banner-error {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+}
+
+.update-banner-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.update-banner-lead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.update-sparkle-icon {
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+}
+
+.update-loading-icon {
+  color: #3182ce;
+}
+
+.update-success-icon {
+  color: var(--success);
+}
+
+.update-error-icon {
+  color: var(--error);
+}
+
+.update-banner-text {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.update-banner-text strong {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.update-banner-desc {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.update-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.update-primary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background-color: var(--accent);
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.update-primary-btn:hover:not(:disabled) {
+  background-color: var(--accent-hover);
+}
+
+.update-primary-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.update-dismiss-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: none;
+  color: var(--text-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.update-dismiss-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-main);
+}
+

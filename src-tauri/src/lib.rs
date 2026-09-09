@@ -52,7 +52,10 @@ pub fn run() {
             reveal_in_folder,
             fetch_metadata,
             start_download,
-            cancel_download
+            cancel_download,
+            check_app_update,
+            install_app_update,
+            open_external_url
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
