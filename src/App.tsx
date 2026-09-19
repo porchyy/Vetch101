@@ -25,6 +25,8 @@ import {
 } from "lucide-react";
 import { formatBytes } from "./history";
 import { UpdateBanner } from "./components/UpdateBanner";
+import { VideoResultCard } from "./components/VideoResultCard";
+import { PhotoResultCard, type ImageFormat } from "./components/PhotoResultCard";
 import { createUpdaterState, UpdaterAction, canStartUpdate, type UpdaterState } from "./updater-state";
 
 interface DownloadProgressPayload {
@@ -77,18 +79,7 @@ function detectPlatform(urlStr: string): string {
   }
 }
 
-function formatDuration(seconds?: number): string {
-  if (!seconds || seconds <= 0) return "";
-  const total = Math.floor(seconds);
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  if (m >= 60) {
-    const h = Math.floor(m / 60);
-    const rm = m % 60;
-    return `${h}:${String(rm).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  }
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
+
 
 export default function App() {
   const [{ url, meta, selectedQualityId, status, error }, dispatchInput] = useReducer(videoInputReducer, initialVideoInput);
@@ -109,6 +100,15 @@ export default function App() {
   const [updateMsg, setUpdateMsg] = useState<string | null>(null);
 
   const [notice, setNotice] = useState("");
+  const IMAGE_FORMAT_KEY = "vetch101_image_format";
+  const [imageFormat, setImageFormat] = useState<ImageFormat>(() => {
+    const saved = localStorage.getItem(IMAGE_FORMAT_KEY);
+    return saved === "png" ? "png" : "jpg";
+  });
+  const handleSelectImageFormat = (fmt: ImageFormat) => {
+    setImageFormat(fmt);
+    try { localStorage.setItem(IMAGE_FORMAT_KEY, fmt); } catch {}
+  };
 
   const [recent, setRecent] = useState<RecentItem[]>(() => {
     try {
@@ -124,6 +124,7 @@ export default function App() {
   const inputRef = useRef<HTMLInputElement>(null);
   const downloadLock = useRef(false);
   const updateLock = useRef(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 1. Initial dependency check and default directory resolution
   const refreshDependencies = useCallback(async () => {
@@ -165,6 +166,23 @@ export default function App() {
       void unlisten.then((fn) => fn());
     };
   }, []);
+
+  // 3. Debounce-inspect when the user types manually into the URL field.
+  //    Paste and drag-drop trigger inspection directly (delay=0) so this
+  //    effect only needs to cover the typing path (delay=800ms).
+  useEffect(() => {
+    if (!url || downloadLock.current || updateLock.current) return;
+    let valid = false;
+    try { parseVideoUrl(url); valid = true; } catch { /* not a valid URL yet */ }
+    if (!valid) return;
+
+    const timer = setTimeout(() => {
+      void handleInspectUrl(url);
+    }, 800);
+    return () => clearTimeout(timer);
+    // handleInspectUrl is stable (defined outside render), url drives the effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url]);
 
   // Update yt-dlp binary
   const handleUpdateYtdlp = async () => {
@@ -314,6 +332,11 @@ export default function App() {
 
   const changeUrl = (value: string) => {
     if (downloadLock.current) return;
+    // Cancel any in-flight typing debounce
+    if (debounceRef.current !== null) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
     revision.current += 1;
     dispatchInput({ type: "change", url: value });
     setNotice("");
@@ -321,9 +344,24 @@ export default function App() {
     setSavedFile(null);
   };
 
+  /** Trigger inspection immediately (paste/drop) or via debounce (typing). */
+  const scheduleInspect = useCallback(
+    (value: string, delay: number) => {
+      if (debounceRef.current !== null) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        debounceRef.current = null;
+        void handleInspectUrl(value);
+      }, delay);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     e.preventDefault();
-    changeUrl(e.clipboardData.getData("text").trim());
+    const pasted = e.clipboardData.getData("text").trim();
+    changeUrl(pasted);
+    if (pasted) scheduleInspect(pasted, 0);
   };
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -336,6 +374,7 @@ export default function App() {
       );
       changeUrl(droppedUrl);
       inputRef.current?.focus();
+      if (droppedUrl) scheduleInspect(droppedUrl, 0);
     } catch (err) {
       setError({ summary: err instanceof Error ? err.message : String(err) });
     }
@@ -464,6 +503,54 @@ export default function App() {
     }
   };
 
+  // Start photo post download (Ticket 6: wired to real Rust photo command)
+  const handleStartPhotoDownload = async () => {
+    if (!meta || downloadLock.current || updateLock.current || status !== "ready") return;
+    if (!folder) {
+      setError({ summary: "กรุณาเลือกโฟลเดอร์สำหรับบันทึกไฟล์" });
+      return;
+    }
+    downloadLock.current = true;
+    setStatus("downloading");
+    setError(null);
+    setNotice("");
+    setProgress(null);
+    setSavedFile(null);
+    try {
+      await invoke("download_photo_post", {
+        url,
+        downloadDir: folder,
+        format: imageFormat,
+      });
+      setStatus("completed");
+      setNotice("ดาวน์โหลดรูปภาพเรียบร้อยแล้ว");
+      const item: RecentItem = {
+        id: meta.id || String(Date.now()),
+        title: meta.title,
+        url,
+        platform: detectPlatform(url),
+        ext: imageFormat,
+        date: Date.now(),
+        filepath: folder,
+      };
+      setRecent((prev) => {
+        const next = [item, ...prev.filter((x) => x.url !== url)].slice(0, 50);
+        try { localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(next)); } catch {}
+        return next;
+      });
+    } catch (err) {
+      setStatus("ready");
+      const errStr = String(err);
+      if (errStr.includes("ยกเลิก")) {
+        setNotice("ยกเลิกการดาวน์โหลดแล้ว");
+      } else {
+        setError({ summary: "ดาวน์โหลดรูปภาพไม่สำเร็จ", detail: errStr });
+      }
+    } finally {
+      downloadLock.current = false;
+    }
+  };
+
   // History quick actions
   const handleOpenFile = async (filepath?: string) => {
     if (!filepath) return;
@@ -504,8 +591,6 @@ export default function App() {
       return next;
     });
   };
-
-  const selectedQuality = meta?.qualities.find((q) => q.id === selectedQualityId);
 
   return (
     <div
@@ -641,8 +726,10 @@ export default function App() {
                     const pasteRevision = revision.current;
                     const clipboardText = await navigator.clipboard.readText();
                     if (clipboardText && revision.current === pasteRevision) {
-                      changeUrl(clipboardText.trim());
+                      const pasted = clipboardText.trim();
+                      changeUrl(pasted);
                       inputRef.current?.focus();
+                      if (pasted) scheduleInspect(pasted, 0);
                     }
                   } catch {
                     setNotice("กรุณากด Ctrl+V เพื่อวางลิงก์");
@@ -712,183 +799,40 @@ export default function App() {
           </div>
         )}
 
-        {/* Video Preview and Quality Selection */}
-        {meta && (
-          <section className="card result-card">
-            <div className="video-summary">
-              <div className="thumbnail-wrapper">
-                {meta.thumbnail ? (
-                  <img
-                    src={meta.thumbnail}
-                    alt={meta.title}
-                    className="thumbnail-img"
-                    referrerPolicy="no-referrer"
-                    onError={(e) => {
-                      e.currentTarget.style.display = "none";
-                    }}
-                  />
-                ) : (
-                  <div className="thumbnail-placeholder">
-                    <Film size={36} />
-                  </div>
-                )}
-                {meta.duration && meta.duration > 0 && (
-                  <span className="duration-tag">{formatDuration(meta.duration)}</span>
-                )}
-                {meta.filesize_approx ? (
-                  <span className="filesize-tag">{formatBytes(meta.filesize_approx)}</span>
-                ) : null}
-              </div>
-
-              <div className="video-info">
-                <div className="video-channel">
-                  <span className="platform-badge">{detectPlatform(url)}</span>
-                  {meta.channel && <span className="channel-name">{meta.channel}</span>}
-                </div>
-                <h2 className="video-title">{meta.title}</h2>
-              </div>
-            </div>
-
-            {/* Quality selection grid */}
-            <div className="quality-section">
-              <span className="section-title">เลือกรูปแบบไฟล์ที่ต้องการ:</span>
-              <div className="quality-grid">
-                {meta.qualities.map((q) => {
-                  const isSelected = selectedQualityId === q.id;
-                  const isAudio = q.ext === "mp3";
-                  const isImage = q.ext === "jpg";
-                  return (
-                    <label
-                      key={q.id}
-                      className={`quality-card ${isSelected ? "selected" : ""}`}
-                      onClick={() => {
-                        if (status !== "downloading") setSelectedQualityId(q.id);
-                      }}
-                    >
-                      <input
-                        type="radio"
-                        name="quality"
-                        value={q.id}
-                        checked={isSelected}
-                        onChange={() => setSelectedQualityId(q.id)}
-                        disabled={status === "downloading"}
-                      />
-                      <div className="quality-icon">
-                        {isImage ? <ImageIcon size={20} /> : isAudio ? <FileAudio size={20} /> : <Film size={20} />}
-                      </div>
-                      <div className="quality-details">
-                        <span className="quality-label">{q.label}</span>
-                        <span className="quality-ext">
-                          {q.ext.toUpperCase()}
-                          {q.filesize_approx ? (
-                            <span className="quality-filesize"> ({formatBytes(q.filesize_approx)})</span>
-                          ) : null}
-                        </span>
-                      </div>
-                      {isSelected && (
-                        <div className="quality-check">
-                          <Check size={14} />
-                        </div>
-                      )}
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Destination folder */}
-            <div className="folder-section">
-              <div className="folder-label">
-                <FolderOpen size={16} />
-                <span>โฟลเดอร์ปลายทาง:</span>
-              </div>
-              <div className="folder-display" title={folder}>
-                <span className="folder-path">{folder || "ยังไม่ได้เลือกโฟลเดอร์"}</span>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={handleSelectFolder}
-                  disabled={status === "downloading"}
-                >
-                  เปลี่ยน
-                </button>
-              </div>
-            </div>
-
-            {/* Download Status & Action Bar */}
-            <div className="action-section">
-              {status === "downloading" ? (
-                <div className="download-progress-box">
-                  <div className="progress-status-row">
-                    <div className="progress-message">
-                      <LoaderCircle size={16} className="spin" />
-                      <span>{progress?.message || "กำลังดาวน์โหลดและประมวลผลไฟล์..."}</span>
-                    </div>
-                    <button type="button" className="btn btn-danger btn-sm" onClick={handleCancelDownload}>
-                      ยกเลิกงาน
-                    </button>
-                  </div>
-
-                  <progress
-                    className="progress-bar"
-                    value={Math.min(100, Math.max(0, progress?.progress ?? 0))}
-                    max={100}
-                  />
-
-                  <div className="progress-metrics">
-                    <span>ความเร็ว: {progress?.speed || "-"}</span>
-                    <span>เหลือเวลา: {progress?.eta || "-"}</span>
-                    <span>{progress?.progress ? `${progress.progress.toFixed(1)}%` : "0%"}</span>
-                  </div>
-                </div>
-              ) : status === "completed" ? (
-                <div className="completed-box">
-                  <div className="completed-info">
-                    <Check size={20} className="text-success" />
-                    <div>
-                      <strong>ดาวน์โหลดและจัดเก็บไฟล์สำเร็จ!</strong>
-                      {savedFile && <div className="saved-file-name">{savedFile}</div>}
-                    </div>
-                  </div>
-                  <div className="completed-actions">
-                    <button type="button" className="btn btn-secondary" onClick={handleOpenFolder}>
-                      <FolderOpen size={16} />
-                      เปิดโฟลเดอร์
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      onClick={() => {
-                        setStatus("ready");
-                        setNotice("");
-                      }}
-                    >
-                      ดาวน์โหลดอีกครั้ง
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="download-actions">
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-lg download-btn"
-                    onClick={handleStartDownload}
-                    disabled={updatingYtdlp || !selectedQuality || status !== "ready"}
-                  >
-                    <ArrowDown size={18} />
-                    บันทึก {selectedQuality?.label || "ไฟล์"}
-                  </button>
-                  {folder && (
-                    <button type="button" className="btn btn-secondary" onClick={handleOpenFolder} title="เปิดโฟลเดอร์ปลายทาง">
-                      <FolderOpen size={16} />
-                      เปิดโฟลเดอร์
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          </section>
-        )}
+        {/* Result card — split by post type */}
+        {meta && meta.post_type === "photo_post" ? (
+          <PhotoResultCard
+            meta={meta}
+            platform={detectPlatform(url)}
+            imageFormat={imageFormat}
+            onSelectFormat={handleSelectImageFormat}
+            folder={folder}
+            onSelectFolder={handleSelectFolder}
+            onOpenFolder={handleOpenFolder}
+            status={status}
+            progress={progress}
+            savedFile={savedFile}
+            updatingYtdlp={updatingYtdlp}
+            onStartDownload={handleStartPhotoDownload}
+            onCancelDownload={handleCancelDownload}
+          />
+        ) : meta ? (
+          <VideoResultCard
+            meta={meta}
+            platform={detectPlatform(url)}
+            selectedQualityId={selectedQualityId}
+            onSelectQuality={setSelectedQualityId}
+            folder={folder}
+            onSelectFolder={handleSelectFolder}
+            onOpenFolder={handleOpenFolder}
+            status={status}
+            progress={progress}
+            savedFile={savedFile}
+            updatingYtdlp={updatingYtdlp}
+            onStartDownload={handleStartDownload}
+            onCancelDownload={handleCancelDownload}
+          />
+        ) : null}
 
         {/* History section */}
         <section className="card history-card">

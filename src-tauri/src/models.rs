@@ -1,5 +1,32 @@
 use serde::{Deserialize, Serialize};
 
+/// Discriminates between a video post and a photo/image post.
+/// Defaults to `Video` for backward compatibility.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PostType {
+    #[default]
+    Video,
+    PhotoPost,
+}
+
+/// A single image in a photo post / album, in display order.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PhotoImage {
+    /// 1-based index within the post.
+    pub index: u32,
+    /// URL suitable for displaying a preview (may be lower-res).
+    pub preview_url: String,
+    /// Full-resolution download URL.
+    pub download_url: String,
+    /// Pixel width, if known.
+    #[serde(default)]
+    pub width: Option<u32>,
+    /// Pixel height, if known.
+    #[serde(default)]
+    pub height: Option<u32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QualityOption {
     pub id: String,
@@ -20,6 +47,12 @@ pub struct VideoMetadata {
     #[serde(default)]
     pub filesize_approx: Option<u64>,
     pub qualities: Vec<QualityOption>,
+    /// Whether this post is a video or a photo/album post.
+    #[serde(default)]
+    pub post_type: PostType,
+    /// Ordered list of images for photo posts. Empty for video posts.
+    #[serde(default)]
+    pub images: Vec<PhotoImage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

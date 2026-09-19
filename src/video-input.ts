@@ -1,3 +1,13 @@
+export type PostType = "video" | "photo_post";
+
+export interface PhotoImage {
+  index: number;
+  preview_url: string;
+  download_url: string;
+  width?: number | null;
+  height?: number | null;
+}
+
 export interface QualityOption {
   id: string;
   label: string;
@@ -14,6 +24,10 @@ export interface VideoMetadata {
   channel?: string;
   filesize_approx?: number | null;
   qualities: QualityOption[];
+  /** Defaults to "video" when absent (backward compat). */
+  post_type?: PostType;
+  /** Ordered images for photo posts; empty for video posts. */
+  images?: PhotoImage[];
 }
 
 export interface AppError { summary: string; detail?: string }

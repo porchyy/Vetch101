@@ -1,5 +1,5 @@
 use crate::engine::detector::get_binaries;
-use crate::models::{QualityOption, VideoMetadata};
+use crate::models::{PostType, QualityOption, VideoMetadata};
 use serde_json::Value;
 use std::path::Path;
 use std::process::Command;
@@ -118,6 +118,8 @@ pub fn fetch_video_metadata(url: &str) -> Result<VideoMetadata, String> {
         channel,
         filesize_approx,
         qualities,
+        post_type: PostType::Video,
+        images: vec![],
     })
 }
 
