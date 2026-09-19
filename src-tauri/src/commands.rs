@@ -1,10 +1,10 @@
-use crate::engine::detector::{get_binaries, update_ytdlp_tool};
+use crate::engine::detector::{get_binaries, stage_engine_update, update_ytdlp_tool};
 use crate::engine::downloader::{run_download, DownloadManager};
 use crate::engine::metadata::fetch_video_metadata;
-use crate::engine::updater::{check_github_release, download_installer, launch_installer_and_exit};
+use crate::engine::updater::{check_github_release, download_installer, launch_installer_and_exit, AppUpdater};
 use crate::models::{AppUpdateInfo, DependencyStatus, PhotoDownloadResult, VideoMetadata};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, State};
 use tauri_plugin_notification::NotificationExt;
 
@@ -27,7 +27,16 @@ pub async fn check_dependencies() -> Result<DependencyStatus, String> {
 }
 
 #[tauri::command]
-pub async fn update_ytdlp(state: State<'_, Arc<DownloadManager>>) -> Result<String, String> {
+pub async fn update_ytdlp(state: State<'_, Arc<DownloadManager>>, background: Option<bool>) -> Result<String, String> {
+    static ENGINE_UPDATE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _engine = ENGINE_UPDATE.try_lock().map_err(|_| "Engine update already running")?;
+    if background.unwrap_or(false) {
+        let staged = tokio::task::spawn_blocking(stage_engine_update).await.map_err(|e| e.to_string())??;
+        let job = state.inner().begin_when_idle().await?;
+        job.check_cancelled()?;
+        staged.publish()?;
+        return Ok(staged.message.clone());
+    }
     let job = state.inner().begin()?;
     tokio::task::spawn_blocking(move || {
         let binaries = get_binaries();
@@ -96,8 +105,12 @@ pub fn reveal_in_folder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn fetch_metadata(url: String) -> Result<VideoMetadata, String> {
-    tokio::task::spawn_blocking(move || fetch_video_metadata(&url))
+pub async fn fetch_metadata(url: String, state: State<'_, Arc<DownloadManager>>) -> Result<VideoMetadata, String> {
+    let job = state.inner().begin()?;
+    tokio::task::spawn_blocking(move || {
+        job.check_cancelled()?;
+        fetch_video_metadata(&url)
+    })
         .await
         .map_err(|e| format!("Task error: {}", e))?
 }
@@ -143,27 +156,48 @@ pub async fn cancel_download(state: State<'_, Arc<DownloadManager>>) -> Result<(
 }
 
 #[tauri::command]
-pub async fn check_app_update() -> Result<AppUpdateInfo, String> {
-    let current_version = env!("CARGO_PKG_VERSION");
+pub async fn check_app_update(updater: State<'_, Arc<Mutex<AppUpdater>>>) -> Result<AppUpdateInfo, String> {
+    let updater = updater.inner().clone();
     tokio::task::spawn_blocking(move || {
-        check_github_release(current_version)
-    })
-    .await
-    .map_err(|e| format!("Task error: {}", e))?
+        let mut updater = updater.try_lock().map_err(|_| "Update already in progress")?;
+        let release = check_github_release(env!("CARGO_PKG_VERSION"))?;
+        let info = release.info.clone();
+        updater.release = Some(release);
+        Ok(info)
+    }).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn stage_app_update(
+    state: State<'_, Arc<DownloadManager>>,
+    updater: State<'_, Arc<Mutex<AppUpdater>>>,
+) -> Result<(), String> {
+    // Admission check only: staging writes a separate file and need not block later media work.
+    let admission = state.inner().begin()?;
+    drop(admission);
+    let updater = updater.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let mut updater = updater.try_lock().map_err(|_| "Update already in progress")?;
+        let release = updater.release.as_ref().ok_or("Check for updates first")?;
+        let staged = download_installer(release)?;
+        updater.staged = Some(staged);
+        Ok(())
+    }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 pub async fn install_app_update(
     state: State<'_, Arc<DownloadManager>>,
-    setup_url: String,
+    updater: State<'_, Arc<Mutex<AppUpdater>>>,
 ) -> Result<(), String> {
-    let _job = state.inner().begin()?;
+    let job = state.inner().begin()?;
+    let updater = updater.inner().clone();
     tokio::task::spawn_blocking(move || {
-        let installer_path = download_installer(&setup_url)?;
-        launch_installer_and_exit(&installer_path)
-    })
-    .await
-    .map_err(|e| format!("Task error: {}", e))?
+        let updater = updater.try_lock().map_err(|_| "Update already in progress")?;
+        let staged = updater.staged.as_ref().ok_or("Installer is not staged")?;
+        job.check_cancelled()?;
+        launch_installer_and_exit(staged)
+    }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

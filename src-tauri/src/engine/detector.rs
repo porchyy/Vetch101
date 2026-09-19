@@ -266,3 +266,88 @@ pub fn update_ytdlp_tool(binaries: &BinaryPaths) -> Result<String, String> {
         Err(format!("การอัปเดตล้มเหลว: {}", err))
     }
 }
+
+// Update a private copy so users can keep inspecting/downloading with the active engine.
+pub struct EngineUpdate {
+    directory: PathBuf,
+    target: PathBuf,
+    pub message: String,
+}
+
+impl EngineUpdate {
+    pub fn publish(&self) -> Result<(), String> {
+        std::fs::rename(self.directory.join("yt-dlp.exe"), &self.target).map_err(|e| e.to_string())
+    }
+}
+
+impl Drop for EngineUpdate {
+    fn drop(&mut self) {
+        for name in ["yt-dlp.exe", "yt-dlp.exe.old", "yt-dlp.exe.new"] {
+            let _ = std::fs::remove_file(self.directory.join(name));
+        }
+        let _ = std::fs::remove_dir(&self.directory);
+    }
+}
+
+pub fn stage_engine_update() -> Result<EngineUpdate, String> {
+    let mut binaries = get_binaries();
+    let source = binaries.ytdlp_path.as_ref().ok_or("yt-dlp unavailable")?;
+    if binaries.use_python_module {
+        return Err("Automatic update requires a standalone yt-dlp executable".into());
+    }
+    let source = resolve_standalone_engine(source, &std::env::var_os("PATH").unwrap_or_default())
+        .ok_or("Cannot locate standalone yt-dlp executable")?;
+    std::fs::create_dir_all(&binaries.app_bin_dir).map_err(|e| e.to_string())?;
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_nanos();
+    let directory = binaries
+        .app_bin_dir
+        .join(format!("update-{}-{unique}", std::process::id()));
+    std::fs::create_dir(&directory).map_err(|e| e.to_string())?;
+    let mut staged = EngineUpdate {
+        directory,
+        target: binaries.app_bin_dir.join("yt-dlp.exe"),
+        message: String::new(),
+    };
+    let copy = staged.directory.join("yt-dlp.exe");
+    std::fs::copy(&source, &copy).map_err(|e| e.to_string())?;
+    binaries.ytdlp_path = Some(copy.to_string_lossy().into_owned());
+    staged.message = update_ytdlp_tool(&binaries)?;
+    get_tool_version(&copy.to_string_lossy(), &["--version"])
+        .ok_or("Updated engine verification failed")?;
+    Ok(staged)
+}
+
+fn resolve_standalone_engine(source: &str, search_path: &std::ffi::OsStr) -> Option<PathBuf> {
+    let path = Path::new(source);
+    if path.is_file() {
+        return Some(path.to_owned());
+    }
+    std::env::split_paths(search_path)
+        .map(|directory| directory.join(source).with_extension("exe"))
+        .find(|candidate| candidate.is_file())
+}
+
+#[cfg(test)]
+mod update_tests {
+    use super::*;
+
+    #[test]
+    fn resolves_standalone_engine_available_only_through_path() {
+        let directory =
+            std::env::temp_dir().join(format!("vetch101-engine-path-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let executable = directory.join("yt-dlp.exe");
+        std::fs::write(&executable, b"MZ").unwrap();
+        let search_path = std::env::join_paths([&directory]).unwrap();
+        assert_eq!(
+            resolve_standalone_engine("yt-dlp", &search_path),
+            Some(executable.clone())
+        );
+        assert_eq!(resolve_standalone_engine("missing", &search_path), None);
+        std::fs::remove_file(executable).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+    }
+}

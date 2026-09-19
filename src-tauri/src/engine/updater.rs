@@ -1,165 +1,257 @@
 use crate::models::AppUpdateInfo;
 use serde_json::Value;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use sha2::{Digest, Sha256};
+use std::{
+    fs::File,
+    io::Read,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 #[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
+use std::os::windows::{fs::OpenOptionsExt, process::CommandExt};
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+const RELEASE_API: &str = "https://api.github.com/repos/porchyy/Vetch101/releases/latest";
 
-fn clean_version(s: &str) -> &str {
-    s.trim().trim_start_matches(['v', 'V'])
+#[derive(Default)]
+pub struct AppUpdater {
+    pub release: Option<Release>,
+    pub staged: Option<StagedInstaller>,
+}
+
+pub struct Release {
+    pub info: AppUpdateInfo,
+    digest: Option<String>,
+    size: u64,
+}
+
+pub struct StagedInstaller {
+    directory: PathBuf,
+    digest: String,
+    size: u64,
+}
+
+impl Drop for StagedInstaller {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(self.directory.join("Vetch101_Update_Setup.exe"));
+        let _ = std::fs::remove_dir(&self.directory);
+    }
+}
+
+fn version_parts(version: &str) -> Option<Vec<u32>> {
+    version
+        .trim()
+        .strip_prefix(['v', 'V']).unwrap_or(version.trim())
+        .split('.')
+        .map(str::parse)
+        .collect::<Result<Vec<_>, _>>()
+        .ok()
 }
 
 pub fn is_newer_version(remote: &str, current: &str) -> bool {
-    let r_parts: Vec<u32> = clean_version(remote)
-        .split('.')
-        .filter_map(|s| s.parse().ok())
-        .collect();
-    let c_parts: Vec<u32> = clean_version(current)
-        .split('.')
-        .filter_map(|s| s.parse().ok())
-        .collect();
-
-    if r_parts.is_empty() || c_parts.is_empty() {
+    let (Some(mut remote), Some(mut current)) = (version_parts(remote), version_parts(current))
+    else {
         return false;
-    }
-
-    let max_len = r_parts.len().max(c_parts.len());
-    for i in 0..max_len {
-        let r = r_parts.get(i).copied().unwrap_or(0);
-        let c = c_parts.get(i).copied().unwrap_or(0);
-        if r > c {
-            return true;
-        }
-        if r < c {
-            return false;
-        }
-    }
-    false
+    };
+    let len = remote.len().max(current.len());
+    remote.resize(len, 0);
+    current.resize(len, 0);
+    remote > current
 }
 
 pub fn is_running_installed() -> bool {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            if parent.join("uninstall.exe").exists() {
-                return true;
-            }
-        }
-    }
-    false
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("uninstall.exe").is_file()))
+        .unwrap_or(false)
 }
 
-pub fn parse_release_json(json_str: &str, current_version: &str) -> Result<AppUpdateInfo, String> {
-    let val: Value = serde_json::from_str(json_str)
-        .map_err(|e| format!("ไม่สามารถแปลงข้อมูลเวอร์ชันจาก GitHub: {}", e))?;
-
-    let tag_name = val["tag_name"]
+fn parse_release(json: &str, current_version: &str) -> Result<Release, String> {
+    let val: Value =
+        serde_json::from_str(json).map_err(|e| format!("Invalid GitHub release: {e}"))?;
+    let tag = val["tag_name"]
         .as_str()
-        .ok_or("ไม่พบ tag_name ในข้อมูล Release")?;
-    let release_notes = val["body"].as_str().unwrap_or("").to_string();
-
+        .filter(|tag| version_parts(tag).is_some())
+        .ok_or("Invalid release tag")?;
+    if val["draft"].as_bool() == Some(true) || val["prerelease"].as_bool() == Some(true) {
+        return Err("Release is not stable".into());
+    }
+    let assets = val["assets"].as_array().ok_or("Missing release assets")?;
+    let version = tag.trim_start_matches(['v', 'V']);
+    let setup_name = format!("Vetch101_{version}_x64-setup.exe");
+    let portable_name = format!("Vetch101_{version}_x64-portable.zip");
     let mut setup_url = None;
     let mut portable_url = None;
-
-    if let Some(assets) = val["assets"].as_array() {
-        for asset in assets {
-            let name = asset["name"].as_str().unwrap_or("");
-            let download_url = asset["browser_download_url"].as_str().unwrap_or("");
-
-            if name.ends_with("-setup.exe") || (name.contains("setup") && name.ends_with(".exe")) {
-                setup_url = Some(download_url.to_string());
-            } else if name.ends_with("-portable.zip") || (name.contains("portable") && name.ends_with(".zip")) {
-                portable_url = Some(download_url.to_string());
-            }
+    let mut digest = None;
+    let mut size = 0;
+    for asset in assets {
+        let name = asset["name"].as_str().unwrap_or("");
+        if name != setup_name && name != portable_name {
+            continue;
+        }
+        let url = asset["browser_download_url"]
+            .as_str()
+            .ok_or("Missing asset URL")?;
+        if url != format!("https://github.com/porchyy/Vetch101/releases/download/{tag}/{name}") {
+            return Err("Asset URL does not match release tag".into());
+        }
+        if name == setup_name {
+            setup_url = Some(url.to_owned());
+            digest = asset["digest"]
+                .as_str()
+                .and_then(|v| v.strip_prefix("sha256:"))
+                .filter(|v| v.len() == 64 && v.bytes().all(|b| b.is_ascii_hexdigit()))
+                .map(str::to_ascii_lowercase);
+            size = asset["size"].as_u64().unwrap_or(0);
+        } else {
+            portable_url = Some(url.to_owned());
         }
     }
-
-    let available = is_newer_version(tag_name, current_version);
-    let is_installed = is_running_installed();
-
-    Ok(AppUpdateInfo {
-        available,
-        current_version: current_version.to_string(),
-        latest_version: tag_name.to_string(),
-        release_notes,
-        setup_url,
-        portable_url,
-        is_installed,
+    if setup_url.is_none() && portable_url.is_none() {
+        return Err("Missing compatible release assets".into());
+    }
+    Ok(Release {
+        info: AppUpdateInfo {
+            available: is_newer_version(tag, current_version),
+            current_version: current_version.to_owned(),
+            latest_version: tag.to_owned(),
+            release_notes: val["body"].as_str().unwrap_or("").to_owned(),
+            setup_url,
+            portable_url,
+            is_installed: is_running_installed(),
+        },
+        digest,
+        size,
     })
 }
 
-pub fn check_github_release(current_version: &str) -> Result<AppUpdateInfo, String> {
+pub fn parse_release_json(json: &str, current_version: &str) -> Result<AppUpdateInfo, String> {
+    parse_release(json, current_version).map(|release| release.info)
+}
+
+fn curl() -> Command {
     let mut cmd = Command::new("curl.exe");
     cmd.args([
-        "-s",
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--location",
+        "--proto",
+        "=https",
+        "--proto-redir",
+        "=https",
         "--connect-timeout",
         "10",
+        "--max-time",
+        "300",
         "-H",
         "User-Agent: Vetch101",
-        "https://api.github.com/repos/porchyy/Vetch101/releases/latest",
     ]);
-
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
 
-    let output = cmd
+pub fn check_github_release(current_version: &str) -> Result<Release, String> {
+    let output = curl()
+        .args(["--max-time", "30", RELEASE_API])
         .output()
-        .map_err(|e| format!("ไม่สามารถเชื่อมต่อเพื่อตรวจสอบอัปเดต: {}", e))?;
-
+        .map_err(|e| e.to_string())?;
     if !output.status.success() {
-        return Err("ไม่สามารถเรียกดูข้อมูลอัปเดตจาก GitHub ได้".into());
+        return Err(format!(
+            "GitHub: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
     }
-
-    let json_str = String::from_utf8_lossy(&output.stdout);
-    parse_release_json(&json_str, current_version)
+    parse_release(&String::from_utf8_lossy(&output.stdout), current_version)
 }
 
-pub fn download_installer(url: &str) -> Result<PathBuf, String> {
-    let temp_dir = std::env::temp_dir();
-    let target_file = temp_dir.join("Vetch101_Update_Setup.exe");
-
-    if target_file.exists() {
-        let _ = std::fs::remove_file(&target_file);
-    }
-
-    let mut cmd = Command::new("curl.exe");
-    cmd.args([
-        "-L",
-        "--connect-timeout",
-        "15",
-        "-o",
-        &target_file.to_string_lossy(),
-        url,
-    ]);
-
+fn verify_installer(path: &Path, digest: &str, size: u64) -> Result<File, String> {
+    let mut options = File::options();
+    options.read(true);
+    // Keep a read-only sharing handle alive through launch to prevent replacement after verification.
     #[cfg(target_os = "windows")]
-    cmd.creation_flags(CREATE_NO_WINDOW);
+    options.share_mode(1);
+    let mut file = options.open(path).map_err(|e| e.to_string())?;
+    if size < 2 || file.metadata().map_err(|e| e.to_string())?.len() != size {
+        return Err("Installer size mismatch".into());
+    }
+    let mut hash = Sha256::new();
+    let mut buffer = [0u8; 65536];
+    let mut first = true;
+    loop {
+        let len = file.read(&mut buffer).map_err(|e| e.to_string())?;
+        if len == 0 {
+            break;
+        }
+        if first && !buffer[..len].starts_with(b"MZ") {
+            return Err("Invalid Windows installer".into());
+        }
+        first = false;
+        hash.update(&buffer[..len]);
+    }
+    if format!("{:x}", hash.finalize()) != digest {
+        return Err("Installer checksum mismatch".into());
+    }
+    Ok(file)
+}
 
-    let output = cmd
+pub fn download_installer(release: &Release) -> Result<StagedInstaller, String> {
+    if !is_running_installed() || !release.info.available {
+        return Err("This distribution cannot install an update".into());
+    }
+    let url = release
+        .info
+        .setup_url
+        .as_deref()
+        .ok_or("Missing installer asset")?;
+    let digest = release
+        .digest
+        .clone()
+        .ok_or("GitHub release has no SHA-256 checksum; cannot safely install")?;
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_nanos();
+    let directory =
+        std::env::temp_dir().join(format!("Vetch101-update-{}-{unique}", std::process::id()));
+    std::fs::create_dir(&directory).map_err(|e| e.to_string())?;
+    let staged = StagedInstaller {
+        directory,
+        digest,
+        size: release.size,
+    };
+    let path = staged.directory.join("Vetch101_Update_Setup.exe");
+    let output = curl()
+        .arg("--output")
+        .arg(&path)
+        .arg(url)
         .output()
-        .map_err(|e| format!("ไม่สามารถเริ่มการดาวน์โหลดตัวติดตั้ง: {}", e))?;
-
-    if !output.status.success() || !target_file.exists() {
-        return Err("ดาวน์โหลดตัวติดตั้งไม่สำเร็จ".into());
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(format!(
+            "Installer download failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
     }
-
-    Ok(target_file)
+    verify_installer(&path, &staged.digest, staged.size)?;
+    Ok(staged)
 }
 
-pub fn launch_installer_and_exit(installer_path: &Path) -> Result<(), String> {
-    let mut cmd = Command::new(installer_path);
-    // Silent install if possible, or standard interactive setup
-    cmd.arg("/S");
-
+pub fn launch_installer_and_exit(staged: &StagedInstaller) -> Result<(), String> {
+    if !is_running_installed() {
+        return Err("Portable distribution cannot run the installer".into());
+    }
+    let path = staged.directory.join("Vetch101_Update_Setup.exe");
+    let _verified = verify_installer(&path, &staged.digest, staged.size)?;
+    let mut cmd = Command::new(&path);
+    cmd.args(["/S", "/UPDATE", "/R"]);
+    // Explicit breakaway keeps only the installer alive when the app's Job Object closes.
     #[cfg(target_os = "windows")]
-    cmd.creation_flags(CREATE_NO_WINDOW);
-
+    cmd.creation_flags(CREATE_NO_WINDOW | 0x01000000);
     cmd.spawn()
-        .map_err(|e| format!("ไม่สามารถเริ่มโปรแกรมติดตั้ง: {}", e))?;
-
-    // Exit current process so files can be replaced
+        .map_err(|e| format!("Cannot start installer: {e}"))?;
     std::process::exit(0);
 }
 
@@ -209,5 +301,47 @@ mod tests {
             info.portable_url,
             Some("https://github.com/porchyy/Vetch101/releases/download/v0.3.0/Vetch101_0.3.0_x64-portable.zip".to_string())
         );
+    }
+    #[test]
+    fn release_rejects_missing_assets_and_wrong_tag_urls() {
+        assert!(parse_release_json(r#"{"tag_name":"v0.3.0","assets":[]}"#, "0.2.0").is_err());
+        assert!(parse_release_json(r#"{"tag_name":"v0.3.0","assets":[{"name":"Vetch101_0.3.0_x64-setup.exe","browser_download_url":"https://evil.example/setup.exe"}]}"#, "0.2.0").is_err());
+        assert!(!is_newer_version("1.invalid.0", "0.2.0"));
+    }
+
+    #[test]
+    fn installer_verification_rejects_corruption_and_truncation() {
+        let path = std::env::temp_dir().join(format!("vetch101-verify-{}.exe", std::process::id()));
+        std::fs::write(&path, b"MZtest installer").unwrap();
+        let digest = "d4bf57ea81194aad20e43c6739aaa2ddb03717cf35ef9fa07caa0915514265d7";
+        assert!(verify_installer(&path, digest, 17).is_err());
+        assert!(verify_installer(&path, digest, 16).is_ok());
+        std::fs::write(&path, b"MZfake installer").unwrap();
+        assert!(verify_installer(&path, digest, 16).is_err());
+        std::fs::write(&path, b"<html>bad data!").unwrap();
+        assert!(verify_installer(&path, digest, 15).is_err());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn release_rejects_invalid_schema_and_preserves_checksum() {
+        for json in [
+            "not json",
+            "null",
+            "{}",
+            r#"{"tag_name":"v0.3.0","assets":{}}"#,
+        ] {
+            assert!(parse_release_json(json, "0.2.0").is_err());
+        }
+        let release = parse_release(r#"{"tag_name":"v0.3.0","assets":[{
+            "name":"Vetch101_0.3.0_x64-setup.exe",
+            "browser_download_url":"https://github.com/porchyy/Vetch101/releases/download/v0.3.0/Vetch101_0.3.0_x64-setup.exe",
+            "digest":"sha256:d4bf57ea81194aad20e43c6739aaa2ddb03717cf35ef9fa07caa0915514265d7", "size":15
+        }]}"#, "0.2.0").unwrap();
+        assert_eq!(
+            release.digest.as_deref(),
+            Some("d4bf57ea81194aad20e43c6739aaa2ddb03717cf35ef9fa07caa0915514265d7")
+        );
+        assert_eq!(release.size, 15);
     }
 }

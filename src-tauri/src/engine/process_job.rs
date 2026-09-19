@@ -8,7 +8,7 @@ use windows_sys::Win32::System::{
     JobObjects::{
         AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
         SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     },
     Threading::GetCurrentProcess,
 };
@@ -22,7 +22,8 @@ pub fn bind_process_tree() -> io::Result<()> {
         }
         let job = OwnedHandle::from_raw_handle(raw);
         let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = zeroed();
-        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        limits.BasicLimitInformation.LimitFlags =
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK;
         if SetInformationJobObject(
             job.as_raw_handle(),
             JobObjectExtendedLimitInformation,
@@ -118,6 +119,57 @@ mod tests {
                     assert_eq!(result, WAIT_OBJECT_0, "descendant survived {mode}");
                 }
             }
+        }
+    }
+    #[test]
+    fn explicitly_detached_installer_survives_app_exit() {
+        if std::env::var_os("VETCH101_BREAKAWAY_HELPER").is_some() {
+            bind_process_tree().unwrap();
+            let child = Command::new("ping.exe")
+                .args(["-n", "5", "127.0.0.1"])
+                .creation_flags(0x08000000 | 0x01000000)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            println!("INSTALLER:{}", child.id());
+            std::io::stdout().flush().unwrap();
+            let mut ready = String::new();
+            std::io::stdin().read_line(&mut ready).unwrap();
+            std::process::exit(0);
+        }
+        let mut owner = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "engine::process_job::tests::explicitly_detached_installer_survives_app_exit",
+                "--nocapture",
+            ])
+            .env("VETCH101_BREAKAWAY_HELPER", "1")
+            .creation_flags(0x08000000)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let line = BufReader::new(owner.stdout.take().unwrap())
+            .lines()
+            .map(Result::unwrap)
+            .find(|line| line.starts_with("INSTALLER:"))
+            .unwrap();
+        unsafe {
+            let child = OpenProcess(
+                PROCESS_SYNCHRONIZE,
+                0,
+                line.trim_start_matches("INSTALLER:").parse().unwrap(),
+            );
+            assert!(!child.is_null());
+            owner.stdin.take().unwrap().write_all(b"ready\n").unwrap();
+            owner.wait().unwrap();
+            assert_eq!(
+                WaitForSingleObject(child, 0),
+                windows_sys::Win32::Foundation::WAIT_TIMEOUT
+            );
+            assert_eq!(WaitForSingleObject(child, 10_000), WAIT_OBJECT_0);
+            CloseHandle(child);
         }
     }
 }

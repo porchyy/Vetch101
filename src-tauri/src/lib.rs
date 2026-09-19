@@ -25,6 +25,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .manage(download_manager)
+        .manage(Arc::new(std::sync::Mutex::new(engine::updater::AppUpdater::default())))
         .on_window_event(move |window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
@@ -55,6 +56,7 @@ pub fn run() {
             download_photo_post,
             cancel_download,
             check_app_update,
+            stage_app_update,
             install_app_update,
             open_external_url
         ])

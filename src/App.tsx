@@ -176,32 +176,45 @@ export default function App() {
 
 
 
+  const [updaterState, setUpdaterState] = useState<UpdaterState>(createUpdaterState());
+
   // Update yt-dlp binary
-  const handleUpdateYtdlp = async () => {
-    if (downloadLock.current || updateLock.current || status === "checking") return;
-    updateLock.current = true;
-    setUpdatingYtdlp(true);
+  const engineChecked = useRef(false);
+  const appUpdateLock = useRef(false);
+  const appChecked = useRef(false);
+
+  const handleUpdateYtdlp = async (background = false) => {
+    if (downloadLock.current || (status === "downloading") || updateLock.current || (status === "checking")) return;
+    updateLock.current = !background;
+    if (!background) setUpdatingYtdlp(true);
     setUpdateMsg(null);
-    setError(null);
+    if (!background) setError(null);
     try {
-      const resultMsg = await invoke<string>("update_ytdlp");
-      setUpdateMsg(resultMsg);
-      await refreshDependencies();
+      const resultMsg = await invoke<string>("update_ytdlp", { background });
+      if (!background) setUpdateMsg(resultMsg);
+      setDeps(await invoke<DependencyStatus>("check_dependencies"));
     } catch (e) {
-      setError({
+      if (!background) setError({
         summary: "การอัปเดต yt-dlp ไม่สำเร็จ",
         detail: String(e),
       });
     } finally {
-      updateLock.current = false;
-      setUpdatingYtdlp(false);
+      if (!background) {
+        updateLock.current = false;
+        setUpdatingYtdlp(false);
+      }
     }
   };
 
-  // App updater state & actions
-  const [updaterState, setUpdaterState] = useState<UpdaterState>(createUpdaterState());
+  useEffect(() => {
+    if (checkingDeps || !deps?.ytdlp_available || engineChecked.current || (status === "downloading") || (status === "checking") || updateLock.current) return;
+    engineChecked.current = true;
+    void handleUpdateYtdlp(true);
+  }, [checkingDeps, deps, (status === "downloading"), (status === "checking")]);
 
   const handleCheckAppUpdate = useCallback(async (manual: boolean = false) => {
+    if (appUpdateLock.current) return;
+    appUpdateLock.current = true;
     setUpdaterState(UpdaterAction.check);
     try {
       const info = await invoke<{
@@ -215,7 +228,8 @@ export default function App() {
       }>("check_app_update");
 
       if (info.available) {
-        const dismissed = localStorage.getItem("vetch101_dismissed_update");
+        let dismissed: string | null = null;
+        try { dismissed = localStorage.getItem("vetch101_dismissed_update"); } catch {}
         if (!manual && dismissed === info.latest_version) {
           setUpdaterState(createUpdaterState());
           return;
@@ -240,36 +254,51 @@ export default function App() {
       if (manual) {
         setNotice(`ไม่สามารถตรวจหาอัปเดตได้: ${String(e)}`);
       }
+    } finally {
+      appUpdateLock.current = false;
     }
-  }, []);
+  }, [setNotice]);
 
   useEffect(() => {
+    if (checkingDeps || !deps || appChecked.current) return;
     const timer = setTimeout(() => {
+      appChecked.current = true;
       void handleCheckAppUpdate(false);
     }, 2500);
     return () => clearTimeout(timer);
-  }, [handleCheckAppUpdate]);
+  }, [handleCheckAppUpdate, checkingDeps, deps]);
+
+  useEffect(() => {
+    if (updaterState.status !== "available" || !updaterState.isInstalled || appUpdateLock.current || updateLock.current || updatingYtdlp || (status === "downloading") || (status === "checking") || downloadLock.current) return;
+    appUpdateLock.current = true;
+    setUpdaterState(UpdaterAction.startDownload);
+    void invoke("stage_app_update").then(() => {
+      setUpdaterState(UpdaterAction.ready);
+    }).catch((e: unknown) => {
+      setUpdaterState((state) => UpdaterAction.error(state, String(e)));
+    }).finally(() => { appUpdateLock.current = false; });
+  }, [updaterState, updatingYtdlp, (status === "downloading"), (status === "checking"), downloadLock.current]);
 
   const handleStartAppUpdate = async () => {
     const check = canStartUpdate({
-      isDownloading: status === "downloading",
-      isInspecting: status === "checking",
+      isDownloading: (status === "downloading") || downloadLock.current || updateLock.current,
+      isInspecting: (status === "checking"),
     });
     if (!check.allowed) {
       setNotice(check.reason || "ไม่สามารถอัปเดตได้ในขณะนี้");
       return;
     }
-
-    if (updaterState.status !== "available" || !updaterState.setupUrl) {
-      return;
-    }
-
-    setUpdaterState(UpdaterAction.startDownload(updaterState));
+    if (updaterState.status !== "ready" || appUpdateLock.current) return;
+    appUpdateLock.current = true;
+    updateLock.current = true;
+    setUpdaterState(UpdaterAction.apply);
     try {
-      await invoke("install_app_update", { setupUrl: updaterState.setupUrl });
-      setUpdaterState(UpdaterAction.ready(updaterState));
+      await invoke("install_app_update");
     } catch (e) {
       setUpdaterState(UpdaterAction.error(updaterState, String(e)));
+    } finally {
+      appUpdateLock.current = false;
+      updateLock.current = false;
     }
   };
 
@@ -632,7 +661,7 @@ export default function App() {
               </span>
               <button
                 className="button-icon-subtle"
-                onClick={handleUpdateYtdlp}
+                onClick={() => void handleUpdateYtdlp()}
                 disabled={updatingYtdlp || status === "downloading" || status === "checking"}
                 title="ตรวจสอบและอัปเดต yt-dlp เป็นเวอร์ชันล่าสุด"
               >
@@ -642,7 +671,7 @@ export default function App() {
               <button
                 className="button-icon-subtle"
                 onClick={() => handleCheckAppUpdate(true)}
-                disabled={updaterState.status === "checking" || updaterState.status === "downloading" || status === "downloading"}
+                disabled={updaterState.status === "checking" || updaterState.status === "downloading" || updaterState.status === "applying"}
                 title="ตรวจหาอัปเดตแอป Vetch101"
               >
                 <Sparkles size={13} className={updaterState.status === "checking" ? "spin" : ""} />
@@ -662,7 +691,7 @@ export default function App() {
       <main className="main-content">
         <UpdateBanner
           state={updaterState}
-          isDownloading={status === "downloading"}
+          isDownloading={status === "downloading" || downloadLock.current || updatingYtdlp}
           isInspecting={status === "checking"}
           onStartUpdate={handleStartAppUpdate}
           onDismiss={handleDismissAppUpdate}

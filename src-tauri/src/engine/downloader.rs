@@ -71,6 +71,17 @@ impl DownloadManager {
         })
     }
 
+    // ponytail: 200ms polling adds at most 200ms latency; use a notification if it matters.
+    pub async fn begin_when_idle(self: &Arc<Self>) -> Result<Operation, String> {
+        loop {
+            match self.begin() {
+                Ok(job) => return Ok(job),
+                Err(error) if self.control.lock().unwrap().closing => return Err(error),
+                Err(_) => tokio::time::sleep(std::time::Duration::from_millis(200)).await,
+            }
+        }
+    }
+
     pub async fn cancel(&self) -> Result<(), String> {
         let control = self.control.lock().unwrap();
         let cancel = control.cancel.as_ref().ok_or("ไม่มีงานที่กำลังทำงานอยู่")?;
@@ -470,5 +481,18 @@ mod tests {
         assert!(!is_valid_format_spec("rm -rf /"));
         assert!(!is_valid_format_spec("bestvideo; echo hacked"));
     }
+    #[tokio::test]
+    async fn background_update_waits_for_media_and_rejects_shutdown() {
+        let manager = Arc::new(DownloadManager::new());
+        let media = manager.begin().unwrap();
+        assert!(tokio::time::timeout(std::time::Duration::from_millis(20), manager.begin_when_idle()).await.is_err());
+        drop(media);
+        let update = manager.begin_when_idle().await.unwrap();
+        assert!(manager.begin().is_err());
+        drop(update);
+        manager.shutdown().await;
+        assert!(manager.begin_when_idle().await.is_err());
+    }
+
 }
 

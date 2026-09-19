@@ -3,6 +3,7 @@ export type UpdateStatus =
   | 'checking'
   | 'available'
   | 'downloading'
+  | 'applying'
   | 'ready'
   | 'error'
   | 'dismissed';
@@ -20,6 +21,7 @@ export type UpdaterState =
   | { status: 'checking' }
   | ({ status: 'available' } & UpdateMetadata)
   | ({ status: 'downloading'; progress: number } & UpdateMetadata)
+  | ({ status: 'applying' } & UpdateMetadata)
   | ({ status: 'ready' } & UpdateMetadata)
   | { status: 'error'; message: string }
   | { status: 'dismissed'; version: string };
@@ -29,7 +31,8 @@ export function createUpdaterState(): UpdaterState {
 }
 
 export function isNewerVersion(remoteVersion: string, currentVersion: string): boolean {
-  const clean = (v: string) => v.replace(/^v/i, '').trim();
+  const clean = (v: string) => v.trim().replace(/^v/i, '');
+  if (![remoteVersion, currentVersion].every((v) => /^\d+(?:\.\d+)*$/.test(clean(v)))) return false;
   const rParts = clean(remoteVersion).split('.').map(Number);
   const cParts = clean(currentVersion).split('.').map(Number);
 
@@ -81,7 +84,7 @@ export const UpdaterAction = {
   },
 
   startDownload(state: UpdaterState): UpdaterState {
-    if (state.status !== 'available' && state.status !== 'ready' && state.status !== 'downloading') {
+    if (state.status !== 'available' || !state.isInstalled) {
       return state;
     }
     const meta: UpdateMetadata = {
@@ -109,7 +112,7 @@ export const UpdaterAction = {
   },
 
   ready(state: UpdaterState): UpdaterState {
-    if (state.status !== 'downloading' && state.status !== 'available') {
+    if (state.status !== 'downloading') {
       return state;
     }
     return {
@@ -120,6 +123,10 @@ export const UpdaterAction = {
       portableUrl: state.portableUrl,
       isInstalled: state.isInstalled,
     };
+  },
+
+  apply(state: UpdaterState): UpdaterState {
+    return state.status === 'ready' && state.isInstalled ? { ...state, status: 'applying' } : state;
   },
 
   error(_state: UpdaterState, message: string): UpdaterState {

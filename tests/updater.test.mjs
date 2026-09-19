@@ -73,3 +73,19 @@ test('updaterState handles lifecycle transitions', () => {
   state = UpdaterAction.dismiss(state);
   assert.equal(state.status, 'dismissed');
 });
+
+test('only verified staged installed updates can be applied', () => {
+  const available = UpdaterAction.available(createUpdaterState(), {version: '0.3.0', isInstalled: true});
+  assert.equal(UpdaterAction.ready(available).status, 'available');
+  assert.equal(UpdaterAction.apply(available).status, 'available');
+  const ready = UpdaterAction.ready(UpdaterAction.startDownload(available));
+  assert.equal(UpdaterAction.apply(ready).status, 'applying');
+  const portable = UpdaterAction.available(createUpdaterState(), {version: '0.3.0', isInstalled: false});
+  assert.equal(UpdaterAction.startDownload(portable).status, 'available');
+});
+
+test('version comparison rejects malformed components', () => {
+  for (const version of ['1..0', '1. 0', 'v', 'vv2.0.0', '2.invalid.0']) {
+    assert.equal(isNewerVersion(version, '0.2.0'), false, version);
+  }
+});
