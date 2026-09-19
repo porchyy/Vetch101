@@ -1,3 +1,5 @@
+import { useCallback, useState } from "react";
+
 export interface HistoryItem {
   id: string;
   title: string;
@@ -10,6 +12,14 @@ export interface HistoryItem {
   filesize?: number | null;
   thumbnail?: string;
 }
+
+export interface HistoryCriteria {
+  id?: string;
+  date?: number;
+  url?: string;
+}
+
+export type HistoryTarget = string | number | HistoryCriteria;
 
 export const HISTORY_STORAGE_KEY = "vetch101_history_v3";
 export const MAX_HISTORY = 50;
@@ -102,16 +112,25 @@ export function addHistoryItem(
 }
 
 export function removeHistoryItem(
-  idOrDate: string | number,
+  target: HistoryTarget,
   storage?: StorageLike,
 ): HistoryItem[] {
   const store = resolveStorage(storage);
   const history = getHistory(storage);
   const updated = history.filter((item) => {
-    if (typeof idOrDate === "number") {
-      return item.date !== idOrDate;
+    if (typeof target === "number") {
+      return item.date !== target;
     }
-    return item.id !== idOrDate && item.url !== idOrDate;
+    if (typeof target === "string") {
+      return item.id !== target && item.url !== target;
+    }
+    if (target && typeof target === "object") {
+      if (target.id !== undefined && item.id === target.id) return false;
+      if (target.date !== undefined && item.date === target.date) return false;
+      if (target.url !== undefined && item.url === target.url) return false;
+      return true;
+    }
+    return true;
   });
 
   if (store) {
@@ -127,14 +146,21 @@ export function removeHistoryByDate(
   date: number,
   storage?: StorageLike,
 ): HistoryItem[] {
-  return removeHistoryItem(date, storage);
+  return removeHistoryItem({ date }, storage);
 }
 
 export function removeHistoryById(
   id: string,
   storage?: StorageLike,
 ): HistoryItem[] {
-  return removeHistoryItem(id, storage);
+  return removeHistoryItem({ id }, storage);
+}
+
+export function removeHistoryByUrl(
+  url: string,
+  storage?: StorageLike,
+): HistoryItem[] {
+  return removeHistoryItem({ url }, storage);
 }
 
 export function clearHistory(storage?: StorageLike): void {
@@ -143,6 +169,45 @@ export function clearHistory(storage?: StorageLike): void {
   try {
     store.removeItem(HISTORY_STORAGE_KEY);
   } catch {}
+}
+
+export function useHistory(storage?: StorageLike) {
+  const [history, setHistory] = useState<HistoryItem[]>(() => getHistory(storage));
+
+  const add = useCallback(
+    (item: Omit<HistoryItem, "id" | "date"> & { id?: string; date?: number }) => {
+      const added = addHistoryItem(item, storage);
+      setHistory(getHistory(storage));
+      return added;
+    },
+    [storage]
+  );
+
+  const remove = useCallback(
+    (target: HistoryTarget) => {
+      const updated = removeHistoryItem(target, storage);
+      setHistory(updated);
+      return updated;
+    },
+    [storage]
+  );
+
+  const clear = useCallback(() => {
+    clearHistory(storage);
+    setHistory([]);
+  }, [storage]);
+
+  const reload = useCallback(() => {
+    setHistory(getHistory(storage));
+  }, [storage]);
+
+  return {
+    history,
+    addHistoryItem: add,
+    removeHistoryItem: remove,
+    clearHistory: clear,
+    reloadHistory: reload,
+  };
 }
 
 export function formatBytes(bytes?: number | null): string {

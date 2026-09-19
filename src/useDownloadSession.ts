@@ -1,15 +1,11 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { DownloadOutcome, DownloadProgressPayload, MediaDetails } from "./models.ts";
 import { parseDroppedVideoUrl, parseVideoUrl } from "./video-url.ts";
 import {
-  addHistoryItem,
-  clearHistory,
   detectPlatform,
-  getHistory,
-  removeHistoryItem,
-  type HistoryItem,
+  useHistory,
 } from "./history.ts";
 import type {
   ActionConfig,
@@ -222,7 +218,12 @@ export function useDownloadSession({
     return { ...init, imageFormat: initialFormat };
   });
 
-  const [recent, setRecent] = useState<HistoryItem[]>(() => getHistory());
+  const {
+    history: recent,
+    addHistoryItem: recordHistory,
+    removeHistoryItem: removeHistoryRecord,
+    clearHistory: clearAllHistory,
+  } = useHistory();
 
   const downloadLock = useRef(false);
   const revisionRef = useRef(0);
@@ -350,7 +351,7 @@ export function useDownloadSession({
           ? `${folder}\\${finalName}`
           : undefined;
 
-      addHistoryItem({
+      recordHistory({
         id: state.meta.id || String(Date.now()),
         title: state.meta.title,
         url: state.url,
@@ -360,7 +361,6 @@ export function useDownloadSession({
         filepath: finalPath,
         filesize: selected.filesize_approx,
       });
-      setRecent(getHistory());
 
       dispatch({
         type: "download_success",
@@ -430,7 +430,7 @@ export function useDownloadSession({
           outcome.primary_file_path ||
           (firstSaved && folder ? `${folder}\\${firstSaved}` : folder);
 
-        addHistoryItem({
+        recordHistory({
           id: state.meta.id || String(Date.now()),
           title: state.meta.title,
           url: state.url,
@@ -439,7 +439,6 @@ export function useDownloadSession({
           filename: firstSaved || `${state.meta.title} (${outcome.succeeded} รูป)`,
           filepath: primaryPath,
         });
-        setRecent(getHistory());
 
         dispatch({
           type: "download_success",
@@ -560,15 +559,12 @@ export function useDownloadSession({
   }, []);
 
   // 10. History actions
-  const removeHistory = useCallback((date: number) => {
-    const updated = removeHistoryItem(date);
-    setRecent(updated);
-  }, []);
-
-  const clearAllHistory = useCallback(() => {
-    clearHistory();
-    setRecent([]);
-  }, []);
+  const removeHistory = useCallback(
+    (date: number) => {
+      removeHistoryRecord({ date });
+    },
+    [removeHistoryRecord]
+  );
 
   const handleOpenFile = useCallback(async (filepath?: string) => {
     if (!filepath) return;

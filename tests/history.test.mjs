@@ -5,6 +5,9 @@ import {
   getHistory,
   addHistoryItem,
   removeHistoryItem,
+  removeHistoryByDate,
+  removeHistoryById,
+  removeHistoryByUrl,
   clearHistory,
   detectPlatform,
   MAX_HISTORY,
@@ -178,5 +181,59 @@ test("clearHistory empties storage", () => {
   assert.equal(getHistory(storage).length, 1);
 
   clearHistory(storage);
+  assert.equal(getHistory(storage).length, 0);
+});
+
+test("removeHistoryItem supports structured criteria and typed helpers", () => {
+  const storage = createMockStorage();
+  const item1 = addHistoryItem(
+    {
+      id: "id-1",
+      title: "Item 1",
+      url: "https://example.com/item1",
+      platform: "example.com",
+      ext: "mp4",
+      date: 1000,
+    },
+    storage,
+  );
+  const item2 = addHistoryItem(
+    {
+      id: "id-2",
+      title: "Item 2",
+      url: "https://example.com/item2",
+      platform: "example.com",
+      ext: "mp4",
+      date: 2000,
+    },
+    storage,
+  );
+  const item3 = addHistoryItem(
+    {
+      id: "id-3",
+      title: "Item 3",
+      url: "https://example.com/item3",
+      platform: "example.com",
+      ext: "mp4",
+      date: 3000,
+    },
+    storage,
+  );
+
+  assert.equal(getHistory(storage).length, 3);
+
+  // Remove by structured criteria { id }
+  const afterIdCriteria = removeHistoryItem({ id: "id-1" }, storage);
+  assert.equal(afterIdCriteria.length, 2);
+  assert.equal(afterIdCriteria.find((i) => i.id === "id-1"), undefined);
+
+  // Remove by typed helper removeHistoryByDate
+  const afterDateHelper = removeHistoryByDate(2000, storage);
+  assert.equal(afterDateHelper.length, 1);
+  assert.equal(afterDateHelper[0].id, "id-3");
+
+  // Remove by typed helper removeHistoryByUrl
+  const afterUrlHelper = removeHistoryByUrl("https://example.com/item3", storage);
+  assert.equal(afterUrlHelper.length, 0);
   assert.equal(getHistory(storage).length, 0);
 });

@@ -233,3 +233,75 @@ test("reset_status returns completed session to ready state", () => {
   assert.equal(reset.notice, "");
   assert.equal(reset.progress, null);
 });
+
+test("editing or clearing URL invalidates metadata and pending success/failure", () => {
+  const videoMeta = {
+    type: "video",
+    id: "A",
+    title: "Video A",
+    qualities: [{ id: "720p", label: "720p", format_spec: "best", ext: "mp4" }],
+  };
+  const checking = sessionReducer(initialSessionState, {
+    type: "start_inspect",
+    url: "https://a.test",
+    revision: 1,
+  });
+  const ready = sessionReducer(checking, {
+    type: "inspect_success",
+    revision: 1,
+    meta: videoMeta,
+  });
+  assert.equal(ready.selectedQualityId, "720p");
+
+  for (const previous of [checking, ready]) {
+    for (const url of ["https://b.test", ""]) {
+      const changed = sessionReducer(previous, { type: "change_url", url });
+      assert.equal(changed.meta, null);
+      assert.equal(changed.selectedQualityId, "");
+      assert.equal(changed.status, "idle");
+      // Mismatched revision response is ignored
+      assert.equal(
+        sessionReducer(changed, { type: "inspect_success", revision: 1, meta: videoMeta }),
+        changed
+      );
+      assert.equal(
+        sessionReducer(changed, {
+          type: "inspect_failure",
+          revision: 1,
+          error: { summary: "old error" },
+        }),
+        changed
+      );
+    }
+  }
+});
+
+test("overlapping inspections accept only the newest response", async () => {
+  let state = initialSessionState;
+  let completeOld;
+  const oldResult = new Promise((resolve) => {
+    completeOld = resolve;
+  });
+  state = sessionReducer(state, { type: "start_inspect", url: "https://a.test", revision: 1 });
+  const oldRequest = oldResult.then((meta) => {
+    state = sessionReducer(state, { type: "inspect_success", revision: 1, meta });
+  });
+  state = sessionReducer(state, { type: "start_inspect", url: "https://a.test", revision: 2 });
+  const latest = {
+    type: "video",
+    id: "new",
+    title: "New Video",
+    qualities: [],
+  };
+  state = sessionReducer(state, { type: "inspect_success", revision: 2, meta: latest });
+  completeOld({
+    type: "video",
+    id: "old",
+    title: "Old Video",
+    qualities: [{ id: "stale", label: "stale", format_spec: "best", ext: "mp4" }],
+  });
+  await oldRequest;
+  assert.equal(state.meta, latest);
+  assert.equal(state.selectedQualityId, "");
+  assert.equal(state.status, "ready");
+});
