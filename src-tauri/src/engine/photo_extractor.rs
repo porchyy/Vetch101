@@ -1,4 +1,4 @@
-use crate::models::{PhotoImage, PostType, VideoMetadata};
+use crate::models::{MediaDetails, PhotoAlbumDetails, PhotoImage, PostType, VideoMetadata};
 use serde_json::Value;
 use std::process::Command;
 
@@ -11,7 +11,11 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 /// Returns `Ok(Some(VideoMetadata))` if the response represents an image/photo post with images.
 /// Returns `Ok(None)` if the response represents a standard video post (no images),
 /// allowing the caller to fall through to yt-dlp.
-pub fn parse_tiktok_photo_json(json_str: &str, original_url: &str) -> Result<Option<VideoMetadata>, String> {
+/// Pure parser that extracts photo post details from TikWM / TikTok JSON response.
+/// Returns `Ok(Some(PhotoAlbumDetails))` if the response represents an image/photo post with images.
+/// Returns `Ok(None)` if the response represents a standard video post (no images),
+/// allowing the caller to fall through to yt-dlp.
+pub fn parse_tiktok_photo_details(json_str: &str, original_url: &str) -> Result<Option<PhotoAlbumDetails>, String> {
     let root: Value = serde_json::from_str(json_str)
         .map_err(|e| format!("ไม่สามารถอ่านข้อมูล JSON จากเซิร์ฟเวอร์ได้: {}", e))?;
 
@@ -76,23 +80,25 @@ pub fn parse_tiktok_photo_json(json_str: &str, original_url: &str) -> Result<Opt
         return Ok(None);
     }
 
-    let thumbnail = if !cover_url.is_empty() {
+    let cover = if !cover_url.is_empty() {
         cover_url
     } else {
         images[0].preview_url.clone()
     };
 
-    Ok(Some(VideoMetadata {
+    Ok(Some(PhotoAlbumDetails {
         id: if !id.is_empty() { id } else { original_url.to_string() },
         title,
-        thumbnail,
-        duration: None,
+        cover_url: cover,
         channel: channel_display,
-        filesize_approx: None,
-        qualities: vec![],
-        post_type: PostType::PhotoPost,
         images,
     }))
+}
+
+/// Pure parser that extracts photo post metadata for backward-compatibility.
+pub fn parse_tiktok_photo_json(json_str: &str, original_url: &str) -> Result<Option<VideoMetadata>, String> {
+    parse_tiktok_photo_details(json_str, original_url)
+        .map(|opt| opt.map(|album| MediaDetails::PhotoAlbum(album).into()))
 }
 
 /// Checks if a given URL is a legitimate TikTok domain URL.
@@ -109,11 +115,11 @@ pub fn is_tiktok_url(url: &str) -> bool {
     false
 }
 
-/// Attempts to fetch TikTok photo post metadata via TikWM API.
-/// If successful and the post is a photo post, returns `Ok(Some(meta))`.
+/// Attempts to fetch TikTok photo post details via TikWM API.
+/// If successful and the post is a photo post, returns `Ok(Some(PhotoAlbumDetails))`.
 /// If the post is a video post, returns `Ok(None)`.
 /// If the request fails or is not TikTok, returns `Err(msg)` or `Ok(None)`.
-pub fn fetch_tiktok_photo_metadata(url: &str) -> Result<Option<VideoMetadata>, String> {
+pub fn fetch_tiktok_photo_details(url: &str) -> Result<Option<PhotoAlbumDetails>, String> {
     if !is_tiktok_url(url) {
         return Ok(None);
     }
@@ -148,7 +154,13 @@ pub fn fetch_tiktok_photo_metadata(url: &str) -> Result<Option<VideoMetadata>, S
     }
 
     let stdout_str = String::from_utf8_lossy(&output.stdout);
-    parse_tiktok_photo_json(&stdout_str, url)
+    parse_tiktok_photo_details(&stdout_str, url)
+}
+
+/// Backward-compatible fetcher returning VideoMetadata
+pub fn fetch_tiktok_photo_metadata(url: &str) -> Result<Option<VideoMetadata>, String> {
+    fetch_tiktok_photo_details(url)
+        .map(|opt| opt.map(|album| MediaDetails::PhotoAlbum(album).into()))
 }
 
 #[cfg(test)]

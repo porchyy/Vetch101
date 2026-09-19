@@ -38,6 +38,7 @@ temp/
 downloads/
 *.tmp
 .agents/
+.scratch/auto-update*
 
 # Editor directories and files
 .vscode/*

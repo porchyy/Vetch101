@@ -133,9 +133,19 @@ pub async fn run_download(
     url: String,
     format_spec: String,
     download_dir: String,
-) -> Result<(), String> {
-    let mut job = manager.begin()?;
+) -> Result<crate::models::DownloadOutcome, String> {
+    let job = manager.begin()?;
+    run_download_with_job(app, manager, job, url, format_spec, download_dir).await
+}
 
+pub async fn run_download_with_job(
+    app: AppHandle,
+    manager: Arc<DownloadManager>,
+    mut job: Operation,
+    url: String,
+    format_spec: String,
+    download_dir: String,
+) -> Result<crate::models::DownloadOutcome, String> {
     let url = validate_url(&url)?;
 
     // Allowed preset formats
@@ -292,7 +302,7 @@ pub async fn run_download(
     let result = tokio::select! {
         biased;
         _ = async { let _ = job.cancelled.wait_for(|cancelled| *cancelled).await; } => {
-            if let Err(error) = terminate_download(&mut child).await {
+            if let Err(error) = terminate_process_tree(&mut child).await {
                 manager.control.lock().unwrap().closing = true;
                 Err(format!("{error} กรุณาปิดและเปิดแอปใหม่เพื่อเก็บกวาด process ที่เหลือ"))
             } else {
@@ -322,7 +332,17 @@ pub async fn run_download(
                 }
             }
         }
-        verify_output(path_buf.as_deref())
+        verify_output(path_buf.as_deref())?;
+        let final_path = path_buf.ok_or("ไม่พบตำแหน่งไฟล์ผลลัพธ์จาก yt-dlp")?;
+        let file_name = final_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        Ok(crate::models::DownloadOutcome::Video {
+            file_path: final_path.to_string_lossy().to_string(),
+            file_name,
+        })
     } else {
         Err(if message.is_empty() {
             "ดาวน์โหลดไม่สำเร็จ กรุณาลองใหม่อีกครั้ง".into()
@@ -332,7 +352,7 @@ pub async fn run_download(
     }
 }
 
-async fn terminate_download(child: &mut tokio::process::Child) -> Result<(), String> {
+pub async fn terminate_process_tree(child: &mut tokio::process::Child) -> Result<(), String> {
     let tree_result: Result<(), String> = async {
         if let Some(pid) = child.id() {
             #[cfg(target_os = "windows")]
@@ -400,7 +420,7 @@ mod tests {
             .unwrap();
         let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid.trim().parse().unwrap()) };
         assert!(!handle.is_null());
-        let result = super::terminate_download(&mut child).await;
+        let result = super::terminate_process_tree(&mut child).await;
         let descendant = unsafe { WaitForSingleObject(handle, 5000) };
         unsafe {
             CloseHandle(handle);

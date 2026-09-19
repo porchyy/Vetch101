@@ -1,8 +1,8 @@
 use crate::engine::detector::{get_binaries, stage_engine_update, update_ytdlp_tool};
-use crate::engine::downloader::{run_download, DownloadManager};
-use crate::engine::metadata::fetch_video_metadata;
+use crate::engine::downloader::DownloadManager;
+use crate::engine::metadata::fetch_media_details;
 use crate::engine::updater::{check_github_release, download_installer, launch_installer_and_exit, AppUpdater};
-use crate::models::{AppUpdateInfo, DependencyStatus, PhotoDownloadResult, VideoMetadata};
+use crate::models::{AppUpdateInfo, DependencyStatus, DownloadOutcome, MediaDetails};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, State};
@@ -105,11 +105,11 @@ pub fn reveal_in_folder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn fetch_metadata(url: String, state: State<'_, Arc<DownloadManager>>) -> Result<VideoMetadata, String> {
+pub async fn fetch_metadata(url: String, state: State<'_, Arc<DownloadManager>>) -> Result<MediaDetails, String> {
     let job = state.inner().begin()?;
     tokio::task::spawn_blocking(move || {
         job.check_cancelled()?;
-        fetch_video_metadata(&url)
+        fetch_media_details(&url)
     })
         .await
         .map_err(|e| format!("Task error: {}", e))?
@@ -122,9 +122,19 @@ pub async fn start_download(
     url: String,
     format_spec: String,
     download_dir: String,
-) -> Result<(), String> {
-    let manager = state.inner().clone();
-    run_download(app.clone(), manager, url, format_spec, download_dir).await?;
+) -> Result<DownloadOutcome, String> {
+    let pipeline = crate::engine::pipeline::MediaPipeline::new(state.inner().clone());
+    let outcome = pipeline
+        .execute(
+            app.clone(),
+            crate::engine::pipeline::DownloadRequest::Video {
+                url,
+                format_spec,
+                download_dir,
+            },
+        )
+        .await?;
+
     // Notification failure must not turn a verified download into a failed job.
     if let Err(error) = app
         .notification()
@@ -135,7 +145,7 @@ pub async fn start_download(
     {
         eprintln!("Could not show download notification: {error}");
     }
-    Ok(())
+    Ok(outcome)
 }
 
 #[tauri::command]
@@ -145,9 +155,18 @@ pub async fn download_photo_post(
     url: String,
     download_dir: String,
     format: String,
-) -> Result<PhotoDownloadResult, String> {
-    let manager = state.inner().clone();
-    crate::engine::photo_downloader::run_photo_download(app, manager, url, download_dir, format).await
+) -> Result<DownloadOutcome, String> {
+    let pipeline = crate::engine::pipeline::MediaPipeline::new(state.inner().clone());
+    pipeline
+        .execute(
+            app,
+            crate::engine::pipeline::DownloadRequest::PhotoAlbum {
+                url,
+                format,
+                download_dir,
+            },
+        )
+        .await
 }
 
 #[tauri::command]

@@ -1,13 +1,14 @@
 use crate::engine::detector::get_binaries;
-use crate::engine::downloader::DownloadManager;
+use crate::engine::downloader::{DownloadManager, Operation};
 use crate::engine::photo_extractor::fetch_tiktok_photo_metadata;
 use crate::engine::validate_url;
-use crate::models::{DownloadProgressPayload, PhotoDownloadResult};
+use crate::models::{DownloadOutcome, DownloadProgressPayload};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_notification::NotificationExt;
 use tokio::io::AsyncReadExt;
+use tokio::sync::watch;
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -52,8 +53,16 @@ pub async fn is_jpeg_file(path: &Path) -> bool {
     false
 }
 
-/// Downloads an image from a URL to a target path asynchronously using curl.exe.
-pub async fn fetch_image_to_path(url: &str, target: &Path) -> Result<(), String> {
+/// Downloads an image from a URL to a target path asynchronously using curl.exe with instant cancellation support.
+pub async fn fetch_image_to_path_cancellable(
+    url: &str,
+    target: &Path,
+    cancelled: &mut watch::Receiver<bool>,
+) -> Result<(), String> {
+    if *cancelled.borrow() {
+        return Err("ยกเลิกการดาวน์โหลดแล้ว".into());
+    }
+
     let mut cmd = tokio::process::Command::new("curl.exe");
     cmd.kill_on_drop(true);
     cmd.args([
@@ -73,33 +82,47 @@ pub async fn fetch_image_to_path(url: &str, target: &Path) -> Result<(), String>
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
-    let status = cmd
-        .status()
-        .await
+    let mut child = cmd
+        .spawn()
         .map_err(|e| format!("ไม่สามารถเรียกใช้งาน curl.exe: {}", e))?;
 
-    if !status.success() {
-        return Err("ดาวน์โหลดรูปภาพไม่สำเร็จ (curl exit failure)".into());
+    tokio::select! {
+        biased;
+        _ = async { let _ = cancelled.wait_for(|c| *c).await; } => {
+            let _ = crate::engine::downloader::terminate_process_tree(&mut child).await;
+            Err("ยกเลิกการดาวน์โหลดแล้ว".into())
+        }
+        status_res = child.wait() => {
+            let status = status_res.map_err(|e| format!("curl error: {}", e))?;
+            if !status.success() {
+                return Err("ดาวน์โหลดรูปภาพไม่สำเร็จ (curl exit failure)".into());
+            }
+            let meta = tokio::fs::metadata(target)
+                .await
+                .map_err(|e| format!("ไม่พบไฟล์ที่ดาวน์โหลด: {}", e))?;
+
+            if meta.len() == 0 {
+                return Err("ไฟล์รูปภาพที่ดาวน์โหลดมีขนาด 0 ไบต์".into());
+            }
+
+            Ok(())
+        }
     }
+}
 
-    let meta = tokio::fs::metadata(target)
-        .await
-        .map_err(|e| format!("ไม่พบไฟล์ที่ดาวน์โหลด: {}", e))?;
-
-    if meta.len() == 0 {
-        return Err("ไฟล์รูปภาพที่ดาวน์โหลดมีขนาด 0 ไบต์".into());
-    }
-
-    Ok(())
+pub async fn fetch_image_to_path(url: &str, target: &Path) -> Result<(), String> {
+    let (_tx, mut rx) = watch::channel(false);
+    fetch_image_to_path_cancellable(url, target, &mut rx).await
 }
 
 /// Converts an input image to the requested format (jpg or png) asynchronously.
 /// Preserves original JPEG bytes if input is already JPEG and target is jpg.
-pub async fn process_and_save_image(
+pub async fn process_and_save_image_cancellable(
     ffmpeg_path: Option<&str>,
     temp_input: &Path,
     dest_output: &Path,
     format: &str,
+    cancelled: Option<&mut watch::Receiver<bool>>,
 ) -> Result<(), String> {
     let target_ext = format.to_lowercase();
 
@@ -130,14 +153,32 @@ pub async fn process_and_save_image(
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
-    let output = cmd
-        .output()
-        .await
+    let mut child = cmd
+        .spawn()
         .map_err(|e| format!("ไม่สามารถเรียกใช้งาน FFmpeg: {}", e))?;
 
-    if !output.status.success() {
-        let err_str = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("FFmpeg แปลงรูปภาพไม่สำเร็จ: {}", err_str.trim()));
+    if let Some(c) = cancelled {
+        tokio::select! {
+            biased;
+            _ = async { let _ = c.wait_for(|cancelled| *cancelled).await; } => {
+                let _ = crate::engine::downloader::terminate_process_tree(&mut child).await;
+                return Err("ยกเลิกการดาวน์โหลดแล้ว".into());
+            }
+            status_res = child.wait() => {
+                let status = status_res.map_err(|e| format!("FFmpeg error: {}", e))?;
+                if !status.success() {
+                    return Err("FFmpeg แปลงรูปภาพไม่สำเร็จ".into());
+                }
+            }
+        }
+    } else {
+        let status = child
+            .wait()
+            .await
+            .map_err(|e| format!("ไม่สามารถเรียกใช้งาน FFmpeg: {}", e))?;
+        if !status.success() {
+            return Err("FFmpeg แปลงรูปภาพไม่สำเร็จ".into());
+        }
     }
 
     let meta = tokio::fs::metadata(dest_output)
@@ -149,6 +190,15 @@ pub async fn process_and_save_image(
     }
 
     Ok(())
+}
+
+pub async fn process_and_save_image(
+    ffmpeg_path: Option<&str>,
+    temp_input: &Path,
+    dest_output: &Path,
+    format: &str,
+) -> Result<(), String> {
+    process_and_save_image_cancellable(ffmpeg_path, temp_input, dest_output, format, None).await
 }
 
 /// Generates an output filename that doesn't overwrite existing non-identical files.
@@ -169,14 +219,25 @@ pub fn generate_unique_filename(dir: &Path, base_name: &str, index: u32, ext: &s
     dir.join(format!("{}_{:02}_{}.{}", base_name, index, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis(), ext))
 }
 
-/// Orchestrates the download of all photos in a TikTok photo post.
 pub async fn run_photo_download(
     app: AppHandle,
     manager: Arc<DownloadManager>,
     url: String,
     download_dir: String,
     format: String,
-) -> Result<PhotoDownloadResult, String> {
+) -> Result<DownloadOutcome, String> {
+    let job = manager.begin()?;
+    run_photo_download_with_job(app, manager, job, url, download_dir, format).await
+}
+
+pub async fn run_photo_download_with_job(
+    app: AppHandle,
+    _manager: Arc<DownloadManager>,
+    job: Operation,
+    url: String,
+    download_dir: String,
+    format: String,
+) -> Result<DownloadOutcome, String> {
     let clean_url = validate_url(&url)?;
     let target_dir = PathBuf::from(&download_dir);
 
@@ -184,7 +245,6 @@ pub async fn run_photo_download(
         return Err("ไม่พบโฟลเดอร์สำหรับบันทึกไฟล์".into());
     }
 
-    let job = manager.begin()?;
     job.check_cancelled()?;
 
     let binaries = get_binaries();
@@ -249,8 +309,10 @@ pub async fn run_photo_download(
         let dest_file = generate_unique_filename(&target_dir, &safe_title, img.index, target_ext);
 
         let mut image_ok = false;
-        if fetch_image_to_path(&img.download_url, &temp_file).await.is_ok() {
-            if process_and_save_image(ffmpeg_str, &temp_file, &dest_file, target_ext).await.is_ok() {
+        let mut cancelled_rx = job.cancelled.clone();
+        if fetch_image_to_path_cancellable(&img.download_url, &temp_file, &mut cancelled_rx).await.is_ok() {
+            let mut ffmpeg_cancelled_rx = job.cancelled.clone();
+            if process_and_save_image_cancellable(ffmpeg_str, &temp_file, &dest_file, target_ext, Some(&mut ffmpeg_cancelled_rx)).await.is_ok() {
                 image_ok = true;
                 succeeded += 1;
                 let fname = dest_file
@@ -265,6 +327,9 @@ pub async fn run_photo_download(
         }
 
         if !image_ok {
+            if job.check_cancelled().is_err() {
+                return Err("ยกเลิกการดาวน์โหลดแล้ว".into());
+            }
             failed_indices.push(current_num);
         }
     }
@@ -304,11 +369,15 @@ pub async fn run_photo_download(
         .body(completion_msg)
         .show();
 
-    Ok(PhotoDownloadResult {
+    let primary_file_path = saved_files.first().map(|f| format!("{}\\{}", download_dir, f));
+
+    Ok(DownloadOutcome::PhotoAlbum {
         total,
         succeeded,
         failed_indices,
         saved_files,
+        folder_path: download_dir,
+        primary_file_path,
     })
 }
 

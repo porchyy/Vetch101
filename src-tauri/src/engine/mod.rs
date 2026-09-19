@@ -4,6 +4,7 @@ pub mod metadata;
 pub mod parser;
 pub mod photo_downloader;
 pub mod photo_extractor;
+pub mod pipeline;
 pub mod updater;
 #[cfg(windows)]
 pub mod process_job;

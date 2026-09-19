@@ -1,8 +1,6 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { initialVideoInput, videoInputReducer, type AppError, type Status, type VideoMetadata } from "./video-input";
-import { parseDroppedVideoUrl, parseVideoUrl } from "./video-url";
+import { parseVideoUrl } from "./video-url.ts";
 import {
   AlertCircle,
   ArrowDown,
@@ -23,115 +21,38 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { formatBytes } from "./history";
+import { formatBytes } from "./history.ts";
 import { UpdateBanner } from "./components/UpdateBanner";
-import { VideoResultCard } from "./components/VideoResultCard";
-import { PhotoResultCard, type ImageFormat } from "./components/PhotoResultCard";
+import { MediaResultCard } from "./components/MediaResultCard";
 import { createUpdaterState, UpdaterAction, canStartUpdate, type UpdaterState } from "./updater-state";
+import { useDownloadSession } from "./useDownloadSession";
+import type { DependencyStatus } from "./models.ts";
 
-interface DownloadProgressPayload {
-  progress: number;
-  speed: string;
-  eta: string;
-  status: string;
-  message: string;
-  filename?: string;
-}
-
-interface PhotoDownloadResult {
-  total: number;
-  succeeded: number;
-  failed_indices: number[];
-  saved_files: string[];
-}
-
-interface DependencyStatus {
-  ytdlp_available: boolean;
-  ffmpeg_available: boolean;
-  ffprobe_available: boolean;
-  ytdlp_path: string | null;
-  ffmpeg_path: string | null;
-  ffprobe_path: string | null;
-  ytdlp_version: string | null;
-  app_bin_dir: string;
-}
-
-interface RecentItem {
-  id: string;
-  title: string;
-  url: string;
-  platform: string;
-  ext: string;
-  date: number;
-  filename?: string;
-  filepath?: string;
-  filesize?: number | null;
-}
-
-const HISTORY_STORAGE_KEY = "vetch101_history_v3";
 const FOLDER_STORAGE_KEY = "vetch101_download_dir";
 
-function detectPlatform(urlStr: string): string {
-  try {
-    const host = new URL(urlStr).hostname.replace(/^www\./, "");
-    if (host.includes("youtube.com") || host.includes("youtu.be")) return "YouTube";
-    if (host.includes("tiktok.com")) return "TikTok";
-    if (host.includes("facebook.com") || host.includes("fb.watch")) return "Facebook";
-    if (host.includes("instagram.com")) return "Instagram";
-    if (host.includes("x.com") || host.includes("twitter.com")) return "X";
-    if (host.includes("soundcloud.com")) return "SoundCloud";
-    return host;
-  } catch {
-    return "เว็บวิดีโอ";
-  }
-}
-
-
-
 export default function App() {
-  const [{ url, meta, selectedQualityId, status, error }, dispatchInput] = useReducer(videoInputReducer, initialVideoInput);
-  const revision = useRef(0);
-  const setStatus = (status: Status) => dispatchInput({ type: "patch", patch: { status } });
-  const setError = (error: AppError | null) => dispatchInput({ type: "patch", patch: { error } });
-  const setSelectedQualityId = (selectedQualityId: string) => dispatchInput({ type: "patch", patch: { selectedQualityId } });
   const [folder, setFolder] = useState<string>(() => {
     return localStorage.getItem(FOLDER_STORAGE_KEY) || "";
   });
-
-  const [progress, setProgress] = useState<DownloadProgressPayload | null>(null);
-  const [savedFile, setSavedFile] = useState<string | null>(null);
 
   const [deps, setDeps] = useState<DependencyStatus | null>(null);
   const [checkingDeps, setCheckingDeps] = useState(true);
   const [updatingYtdlp, setUpdatingYtdlp] = useState(false);
   const [updateMsg, setUpdateMsg] = useState<string | null>(null);
 
-  const [notice, setNotice] = useState("");
-  const IMAGE_FORMAT_KEY = "vetch101_image_format";
-  const [imageFormat, setImageFormat] = useState<ImageFormat>(() => {
-    const saved = localStorage.getItem(IMAGE_FORMAT_KEY);
-    return saved === "png" ? "png" : "jpg";
-  });
-  const handleSelectImageFormat = (fmt: ImageFormat) => {
-    setImageFormat(fmt);
-    try { localStorage.setItem(IMAGE_FORMAT_KEY, fmt); } catch {}
-  };
-
-  const [recent, setRecent] = useState<RecentItem[]>(() => {
-    try {
-      const raw = localStorage.getItem(HISTORY_STORAGE_KEY);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  });
-
   const inputRef = useRef<HTMLInputElement>(null);
-  const downloadLock = useRef(false);
   const updateLock = useRef(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // App updater state & actions
+  const [updaterState, setUpdaterState] = useState<UpdaterState>(createUpdaterState());
+
+  const session = useDownloadSession({
+    folder,
+    isBlocked: updatingYtdlp || updateLock.current || updaterState.status === "applying",
+    inputRef,
+  });
+
+  const { setError, setNotice } = session;
 
   // 1. Initial dependency check and default directory resolution
   const refreshDependencies = useCallback(async () => {
@@ -140,7 +61,6 @@ export default function App() {
       const depStatus = await invoke<DependencyStatus>("check_dependencies");
       setDeps(depStatus);
 
-      // If user hasn't chosen a folder yet, initialize with the system Downloads directory
       if (!folder) {
         const defaultDir = await invoke<string>("get_default_download_dir");
         setFolder(defaultDir);
@@ -154,29 +74,11 @@ export default function App() {
     } finally {
       setCheckingDeps(false);
     }
-  }, [folder]);
+  }, [folder, setError]);
 
   useEffect(() => {
     void refreshDependencies();
   }, [refreshDependencies]);
-
-  // 2. Listen to real-time progress events from Rust
-  useEffect(() => {
-    const unlisten = listen<DownloadProgressPayload>("download-progress", (event) => {
-      setProgress(event.payload);
-      if (event.payload.filename) {
-        setSavedFile(event.payload.filename);
-      }
-    });
-
-    return () => {
-      void unlisten.then((fn) => fn());
-    };
-  }, []);
-
-
-
-  const [updaterState, setUpdaterState] = useState<UpdaterState>(createUpdaterState());
 
   // Update yt-dlp binary
   const engineChecked = useRef(false);
@@ -184,17 +86,17 @@ export default function App() {
   const appChecked = useRef(false);
 
   const handleUpdateYtdlp = async (background = false) => {
-    if (downloadLock.current || (status === "downloading") || updateLock.current || (status === "checking")) return;
+    if (session.downloadLockActive || session.isDownloading || updateLock.current || session.isInspecting) return;
     updateLock.current = !background;
     if (!background) setUpdatingYtdlp(true);
     setUpdateMsg(null);
-    if (!background) setError(null);
+    if (!background) session.setError(null);
     try {
       const resultMsg = await invoke<string>("update_ytdlp", { background });
       if (!background) setUpdateMsg(resultMsg);
       setDeps(await invoke<DependencyStatus>("check_dependencies"));
     } catch (e) {
-      if (!background) setError({
+      if (!background) session.setError({
         summary: "การอัปเดต yt-dlp ไม่สำเร็จ",
         detail: String(e),
       });
@@ -207,10 +109,10 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (checkingDeps || !deps?.ytdlp_available || engineChecked.current || (status === "downloading") || (status === "checking") || updateLock.current) return;
+    if (checkingDeps || !deps?.ytdlp_available || engineChecked.current || session.isDownloading || session.isInspecting || updateLock.current) return;
     engineChecked.current = true;
     void handleUpdateYtdlp(true);
-  }, [checkingDeps, deps, (status === "downloading"), (status === "checking")]);
+  }, [checkingDeps, deps, session.isDownloading, session.isInspecting]);
 
   const handleCheckAppUpdate = useCallback(async (manual: boolean = false) => {
     if (appUpdateLock.current) return;
@@ -269,7 +171,7 @@ export default function App() {
   }, [handleCheckAppUpdate, checkingDeps, deps]);
 
   useEffect(() => {
-    if (updaterState.status !== "available" || !updaterState.isInstalled || appUpdateLock.current || updateLock.current || updatingYtdlp || (status === "downloading") || (status === "checking") || downloadLock.current) return;
+    if (updaterState.status !== "available" || !updaterState.isInstalled || appUpdateLock.current || updateLock.current || updatingYtdlp || session.isDownloading || session.isInspecting || session.downloadLockActive) return;
     appUpdateLock.current = true;
     setUpdaterState(UpdaterAction.startDownload);
     void invoke("stage_app_update").then(() => {
@@ -277,15 +179,15 @@ export default function App() {
     }).catch((e: unknown) => {
       setUpdaterState((state) => UpdaterAction.error(state, String(e)));
     }).finally(() => { appUpdateLock.current = false; });
-  }, [updaterState, updatingYtdlp, (status === "downloading"), (status === "checking"), downloadLock.current]);
+  }, [updaterState, updatingYtdlp, session.isDownloading, session.isInspecting, session.downloadLockActive]);
 
   const handleStartAppUpdate = async () => {
     const check = canStartUpdate({
-      isDownloading: (status === "downloading") || downloadLock.current || updateLock.current,
-      isInspecting: (status === "checking"),
+      isDownloading: session.isDownloading || session.downloadLockActive || updateLock.current,
+      isInspecting: session.isInspecting,
     });
     if (!check.allowed) {
-      setNotice(check.reason || "ไม่สามารถอัปเดตได้ในขณะนี้");
+      session.setNotice(check.reason || "ไม่สามารถอัปเดตได้ในขณะนี้");
       return;
     }
     if (updaterState.status !== "ready" || appUpdateLock.current) return;
@@ -319,9 +221,9 @@ export default function App() {
     }
   };
 
-  // Select destination folder
+  // Destination folder management
   const handleSelectFolder = async () => {
-    if (status === "downloading") return;
+    if (session.isDownloading) return;
     try {
       const chosen = await invoke<string | null>("select_folder", {
         defaultDir: folder || undefined,
@@ -331,294 +233,23 @@ export default function App() {
         localStorage.setItem(FOLDER_STORAGE_KEY, chosen);
       }
     } catch (e) {
-      setError({
+      session.setError({
         summary: "ไม่สามารถเลือกโฟลเดอร์ได้",
         detail: String(e),
       });
     }
   };
 
-  // Open destination folder in Windows Explorer
   const handleOpenFolder = async () => {
     if (!folder) return;
     try {
       await invoke("open_folder", { path: folder });
     } catch (e) {
-      setError({
+      session.setError({
         summary: "ไม่สามารถเปิดโฟลเดอร์ปลายทางได้",
         detail: String(e),
       });
     }
-  };
-
-  const changeUrl = (value: string) => {
-    if (downloadLock.current) return;
-    // Cancel any in-flight typing debounce
-    if (debounceRef.current !== null) {
-      clearTimeout(debounceRef.current);
-      debounceRef.current = null;
-    }
-    revision.current += 1;
-    dispatchInput({ type: "change", url: value });
-    setNotice("");
-    setProgress(null);
-    setSavedFile(null);
-  };
-
-  /** Trigger inspection immediately (paste/drop) or via debounce (typing). */
-  const scheduleInspect = useCallback(
-    (value: string, delay: number) => {
-      if (debounceRef.current !== null) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => {
-        debounceRef.current = null;
-        void handleInspectUrl(value);
-      }, delay);
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
-
-  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-    e.preventDefault();
-    const pasted = e.clipboardData.getData("text").trim();
-    changeUrl(pasted);
-    if (pasted) scheduleInspect(pasted, 0);
-  };
-
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    if (downloadLock.current || status === "checking" || e.dataTransfer.files.length) return;
-    try {
-      const droppedUrl = parseDroppedVideoUrl(
-        e.dataTransfer.getData("text/uri-list"),
-        e.dataTransfer.getData("text/plain"),
-      );
-      changeUrl(droppedUrl);
-      inputRef.current?.focus();
-      if (droppedUrl) scheduleInspect(droppedUrl, 0);
-    } catch (err) {
-      setError({ summary: err instanceof Error ? err.message : String(err) });
-    }
-  };
-
-  // Clear current input and state
-  const handleClear = () => {
-    if (downloadLock.current) return;
-    changeUrl("");
-    inputRef.current?.focus();
-  };
-
-  // Inspect video URL
-  const handleInspectUrl = async (urlToInspect?: string) => {
-    if (downloadLock.current || updateLock.current) return;
-    const target = (urlToInspect ?? url).trim();
-
-    let cleanUrl = "";
-    try {
-      cleanUrl = parseVideoUrl(target);
-    } catch (err) {
-      setError({
-        summary: err instanceof Error ? err.message : String(err),
-      });
-      inputRef.current?.focus();
-      return;
-    }
-
-    const request = ++revision.current;
-    dispatchInput({ type: "inspect", url: cleanUrl, revision: request });
-    setNotice("");
-    setProgress(null);
-    setSavedFile(null);
-
-    try {
-      const metadata = await invoke<VideoMetadata>("fetch_metadata", { url: cleanUrl });
-      dispatchInput({ type: "success", revision: request, meta: metadata });
-    } catch (err) {
-      dispatchInput({ type: "failure", revision: request, error: {
-        summary: "ไม่สามารถดึงข้อมูลวิดีโอจากลิงก์นี้ได้",
-        detail: String(err),
-      } });
-    }
-  };
-
-  // Start download
-  const handleStartDownload = async () => {
-    if (!meta || downloadLock.current || updateLock.current || status !== "ready") return;
-    const selected = meta.qualities.find((q) => q.id === selectedQualityId);
-    if (!selected) {
-      setError({ summary: "กรุณาเลือกความละเอียดหรือรูปแบบไฟล์ที่ต้องการ" });
-      return;
-    }
-
-    if (!folder) {
-      setError({ summary: "กรุณาเลือกโฟลเดอร์สำหรับบันทึกไฟล์" });
-      return;
-    }
-
-    downloadLock.current = true;
-    setStatus("downloading");
-    setError(null);
-    setNotice("");
-    setProgress(null);
-    setSavedFile(null);
-
-    try {
-      await invoke("start_download", {
-        url,
-        formatSpec: selected.format_spec,
-        downloadDir: folder,
-      });
-
-      setStatus("completed");
-      setNotice("บันทึกไฟล์เรียบร้อยแล้ว");
-
-      // Save to local history
-      const finalName = savedFile || `${meta.title}.${selected.ext}`;
-      const finalPath = folder ? `${folder}\\${finalName}` : undefined;
-      const item: RecentItem = {
-        id: meta.id || String(Date.now()),
-        title: meta.title,
-        url,
-        platform: detectPlatform(url),
-        ext: selected.ext,
-        date: Date.now(),
-        filename: finalName,
-        filepath: finalPath,
-        filesize: selected.filesize_approx,
-      };
-
-      setRecent((prev) => {
-        const next = [item, ...prev.filter((x) => x.url !== url)].slice(0, 50);
-        try {
-          localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(next));
-        } catch {}
-        return next;
-      });
-    } catch (err) {
-      setStatus("ready");
-      const errStr = String(err);
-      if (errStr.includes("ยกเลิก")) {
-        setNotice("ยกเลิกการดาวน์โหลดแล้ว");
-      } else {
-        setError({
-          summary: "ดาวน์โหลดไม่สำเร็จ",
-          detail: errStr,
-        });
-      }
-    } finally {
-      downloadLock.current = false;
-    }
-  };
-
-  // Cancel running download
-  const handleCancelDownload = async () => {
-    if (status !== "downloading") return;
-    try {
-      await invoke("cancel_download");
-      setNotice("ส่งคำสั่งยกเลิกแล้ว");
-    } catch (e) {
-      setError({
-        summary: "ไม่สามารถยกเลิกงานได้",
-        detail: String(e),
-      });
-    }
-  };
-
-  // Start photo post download (Ticket 6: wired to real Rust photo command)
-  const handleStartPhotoDownload = async () => {
-    if (!meta || downloadLock.current || updateLock.current || status !== "ready") return;
-    if (!folder) {
-      setError({ summary: "กรุณาเลือกโฟลเดอร์สำหรับบันทึกไฟล์" });
-      return;
-    }
-    downloadLock.current = true;
-    setStatus("downloading");
-    setError(null);
-    setNotice("");
-    setProgress(null);
-    setSavedFile(null);
-    try {
-      const result = await invoke<PhotoDownloadResult>("download_photo_post", {
-        url,
-        downloadDir: folder,
-        format: imageFormat,
-      });
-      setStatus("completed");
-      if (result.failed_indices.length === 0) {
-        setNotice(`บันทึกรูปภาพครบทั้ง ${result.total} รูปเรียบร้อยแล้ว`);
-      } else {
-        setNotice(
-          `ดาวน์โหลดสำเร็จ ${result.succeeded}/${result.total} รูป (รูปที่ ${result.failed_indices.join(", ")} ล้มเหลว)`,
-        );
-      }
-      const firstSaved = result.saved_files[0];
-      const item: RecentItem = {
-        id: meta.id || String(Date.now()),
-        title: meta.title,
-        url,
-        platform: detectPlatform(url),
-        ext: imageFormat,
-        date: Date.now(),
-        filename: firstSaved || `${meta.title} (${result.succeeded} รูป)`,
-        filepath: firstSaved && folder ? `${folder}\\${firstSaved}` : folder,
-      };
-      setRecent((prev) => {
-        const next = [item, ...prev.filter((x) => x.url !== url)].slice(0, 50);
-        try { localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(next)); } catch {}
-        return next;
-      });
-    } catch (err) {
-      setStatus("ready");
-      const errStr = String(err);
-      if (errStr.includes("ยกเลิก")) {
-        setNotice("ยกเลิกการดาวน์โหลดแล้ว");
-      } else {
-        setError({ summary: "ดาวน์โหลดรูปภาพไม่สำเร็จ", detail: errStr });
-      }
-    } finally {
-      downloadLock.current = false;
-    }
-  };
-
-  // History quick actions
-  const handleOpenFile = async (filepath?: string) => {
-    if (!filepath) return;
-    try {
-      await invoke("open_file", { path: filepath });
-    } catch (e) {
-      setError({
-        summary: "ไม่สามารถเปิดไฟล์ได้",
-        detail: String(e),
-      });
-    }
-  };
-
-  const handleRevealFolder = async (filepath?: string) => {
-    if (!filepath) return;
-    try {
-      await invoke("reveal_in_folder", { path: filepath });
-    } catch {
-      if (folder) {
-        await invoke("open_folder", { path: folder }).catch(() => {});
-      }
-    }
-  };
-
-  const handleCopyLink = async (urlStr: string) => {
-    try {
-      await navigator.clipboard.writeText(urlStr);
-      setNotice("คัดลอกลิงก์ต้นทางเรียบร้อยแล้ว");
-    } catch {}
-  };
-
-  const handleRemoveHistoryItem = (date: number) => {
-    setRecent((prev) => {
-      const next = prev.filter((x) => x.date !== date);
-      try {
-        localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(next));
-      } catch {}
-      return next;
-    });
   };
 
   return (
@@ -627,11 +258,15 @@ export default function App() {
       onDragOver={(e) => {
         e.preventDefault();
         const types = e.dataTransfer.types;
-        e.dataTransfer.dropEffect = !downloadLock.current && status !== "checking"
-          && !types.includes("Files") && (types.includes("text/uri-list") || types.includes("text/plain"))
-          ? "copy" : "none";
+        e.dataTransfer.dropEffect =
+          !session.downloadLockActive &&
+          !session.isInspecting &&
+          !types.includes("Files") &&
+          (types.includes("text/uri-list") || types.includes("text/plain"))
+            ? "copy"
+            : "none";
       }}
-      onDrop={handleDrop}
+      onDrop={session.handleDrop}
     >
       {/* Header bar */}
       <header className="app-header">
@@ -662,7 +297,7 @@ export default function App() {
               <button
                 className="button-icon-subtle"
                 onClick={() => void handleUpdateYtdlp()}
-                disabled={updatingYtdlp || status === "downloading" || status === "checking"}
+                disabled={updatingYtdlp || session.isDownloading || session.isInspecting || updaterState.status === "applying"}
                 title="ตรวจสอบและอัปเดต yt-dlp เป็นเวอร์ชันล่าสุด"
               >
                 <RefreshCw size={13} className={updatingYtdlp ? "spin" : ""} />
@@ -691,8 +326,8 @@ export default function App() {
       <main className="main-content">
         <UpdateBanner
           state={updaterState}
-          isDownloading={status === "downloading" || downloadLock.current || updatingYtdlp}
-          isInspecting={status === "checking"}
+          isDownloading={session.isDownloading || session.downloadLockActive || updatingYtdlp}
+          isInspecting={session.isInspecting}
           onStartUpdate={handleStartAppUpdate}
           onDismiss={handleDismissAppUpdate}
           onOpenExternalUrl={handleOpenUrl}
@@ -722,34 +357,34 @@ export default function App() {
               type="text"
               className="url-input"
               placeholder="วางหรือลากลิงก์วิดีโอหรือรูปภาพมาที่นี่"
-              value={url}
+              value={session.url}
               onChange={(e) => {
                 const nextVal = e.target.value;
-                changeUrl(nextVal);
+                session.changeUrl(nextVal);
                 let valid = false;
                 try { parseVideoUrl(nextVal.trim()); valid = true; } catch {}
                 if (valid) {
-                  scheduleInspect(nextVal.trim(), 800);
+                  session.scheduleInspect(nextVal.trim(), 800);
                 }
               }}
-              onPaste={handlePaste}
+              onPaste={session.handlePaste}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && url.trim() && status !== "downloading" && status !== "checking") {
+                if (e.key === "Enter" && session.url.trim() && !session.isDownloading && !session.isInspecting) {
                   e.preventDefault();
-                  void handleInspectUrl();
+                  void session.inspectUrl();
                 }
               }}
-              disabled={status === "downloading"}
+              disabled={session.isDownloading}
               autoComplete="off"
               spellCheck={false}
             />
 
-            {url ? (
+            {session.url ? (
               <button
                 type="button"
                 className="action-icon-btn"
-                onClick={handleClear}
-                disabled={status === "downloading"}
+                onClick={session.handleClear}
+                disabled={session.isDownloading}
                 title="ล้างลิงก์"
               >
                 <X size={16} />
@@ -758,20 +393,7 @@ export default function App() {
               <button
                 type="button"
                 className="action-text-btn"
-                onClick={async () => {
-                  try {
-                    const pasteRevision = revision.current;
-                    const clipboardText = await navigator.clipboard.readText();
-                    if (clipboardText && revision.current === pasteRevision) {
-                      const pasted = clipboardText.trim();
-                      changeUrl(pasted);
-                      inputRef.current?.focus();
-                      if (pasted) scheduleInspect(pasted, 0);
-                    }
-                  } catch {
-                    setNotice("กรุณากด Ctrl+V เพื่อวางลิงก์");
-                  }
-                }}
+                onClick={session.handlePasteClipboard}
                 title="วางจากคลิปบอร์ด"
               >
                 <Clipboard size={14} />
@@ -782,10 +404,10 @@ export default function App() {
             <button
               type="button"
               className="btn btn-primary"
-              disabled={updatingYtdlp || status === "downloading" || status === "checking" || !url.trim()}
-              onClick={() => handleInspectUrl()}
+              disabled={updatingYtdlp || session.isDownloading || session.isInspecting || !session.url.trim()}
+              onClick={() => session.inspectUrl()}
             >
-              {status === "checking" ? (
+              {session.isInspecting ? (
                 <>
                   <LoaderCircle size={16} className="spin" />
                   กำลังตรวจสอบ…
@@ -811,73 +433,51 @@ export default function App() {
         </section>
 
         {/* Error notification with expandable technical details */}
-        {error && (
+        {session.error && (
           <div className="alert alert-error" role="alert">
             <div className="alert-header">
               <AlertCircle size={18} />
               <div className="alert-text">
-                <strong>{error.summary}</strong>
+                <strong>{session.error.summary}</strong>
               </div>
+              <button
+                className="button-icon-subtle"
+                onClick={() => session.setError(null)}
+                title="ปิดการแจ้งเตือน"
+              >
+                <X size={14} />
+              </button>
             </div>
-            {error.detail && (
-              <details className="tech-details">
-                <summary>ดูรายละเอียดข้อผิดพลาดทางเทคนิค</summary>
-                <pre>{error.detail}</pre>
+            {session.error.detail && (
+              <details className="alert-details">
+                <summary>รายละเอียดทางเทคนิค</summary>
+                <pre>{session.error.detail}</pre>
               </details>
             )}
           </div>
         )}
 
         {/* Notice notification */}
-        {notice && (
+        {session.notice && (
           <div className="alert alert-success" role="status">
             <Check size={16} />
-            <span>{notice}</span>
+            <span>{session.notice}</span>
           </div>
         )}
 
-        {/* Result card — split by post type */}
-        {meta && meta.post_type === "photo_post" ? (
-          <PhotoResultCard
-            meta={meta}
-            platform={detectPlatform(url)}
-            imageFormat={imageFormat}
-            onSelectFormat={handleSelectImageFormat}
-            folder={folder}
-            onSelectFolder={handleSelectFolder}
-            onOpenFolder={handleOpenFolder}
-            status={status}
-            progress={progress}
-            savedFile={savedFile}
-            updatingYtdlp={updatingYtdlp}
-            onStartDownload={handleStartPhotoDownload}
-            onCancelDownload={handleCancelDownload}
-            onDownloadAgain={() => {
-              setStatus("ready");
-              setNotice("");
+        {/* Result card — composite shell with swappable media details */}
+        {session.mediaConfig && (
+          <MediaResultCard
+            media={session.mediaConfig}
+            folder={{
+              path: folder,
+              onSelect: handleSelectFolder,
+              onOpen: handleOpenFolder,
             }}
+            session={session.sessionConfig}
+            actions={session.actionConfig}
           />
-        ) : meta ? (
-          <VideoResultCard
-            meta={meta}
-            platform={detectPlatform(url)}
-            selectedQualityId={selectedQualityId}
-            onSelectQuality={setSelectedQualityId}
-            folder={folder}
-            onSelectFolder={handleSelectFolder}
-            onOpenFolder={handleOpenFolder}
-            status={status}
-            progress={progress}
-            savedFile={savedFile}
-            updatingYtdlp={updatingYtdlp}
-            onStartDownload={handleStartDownload}
-            onCancelDownload={handleCancelDownload}
-            onDownloadAgain={() => {
-              setStatus("ready");
-              setNotice("");
-            }}
-          />
-        ) : null}
+        )}
 
         {/* History section */}
         <section className="card history-card">
@@ -885,18 +485,13 @@ export default function App() {
             <div className="history-title">
               <Clock3 size={17} />
               <span>ประวัติการดาวน์โหลดในเครื่อง</span>
-              {recent.length > 0 && <span className="history-count">({recent.length})</span>}
+              {session.recent.length > 0 && <span className="history-count">({session.recent.length})</span>}
             </div>
-            {recent.length > 0 && (
+            {session.recent.length > 0 && (
               <button
                 type="button"
                 className="button-icon-subtle"
-                onClick={() => {
-                  setRecent([]);
-                  try {
-                    localStorage.removeItem(HISTORY_STORAGE_KEY);
-                  } catch {}
-                }}
+                onClick={session.clearAllHistory}
                 title="ล้างประวัติทั้งหมด"
               >
                 <Trash2 size={14} />
@@ -905,9 +500,9 @@ export default function App() {
             )}
           </div>
 
-          {recent.length > 0 ? (
+          {session.recent.length > 0 ? (
             <div className="history-list">
-              {recent.map((item) => (
+              {session.recent.map((item) => (
                 <div key={`${item.url}-${item.date}`} className="history-item">
                   <div className="history-icon">
                     {item.ext === "mp3" ? (
@@ -938,7 +533,7 @@ export default function App() {
                       <button
                         type="button"
                         className="btn btn-secondary btn-sm"
-                        onClick={() => handleOpenFile(item.filepath)}
+                        onClick={() => session.handleOpenFile(item.filepath)}
                         title="เปิดไฟล์ด้วยโปรแกรมเริ่มต้น"
                       >
                         <Play size={13} />
@@ -949,7 +544,7 @@ export default function App() {
                       <button
                         type="button"
                         className="btn btn-secondary btn-sm"
-                        onClick={() => handleRevealFolder(item.filepath)}
+                        onClick={() => session.handleRevealFolder(item.filepath)}
                         title="เปิดโฟลเดอร์และชี้ตำแหน่งไฟล์ในเครื่อง"
                       >
                         <FolderOpen size={13} />
@@ -959,7 +554,7 @@ export default function App() {
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm"
-                      onClick={() => handleCopyLink(item.url)}
+                      onClick={() => session.handleCopyLink(item.url)}
                       title="คัดลอกลิงก์ต้นทาง"
                     >
                       <Copy size={13} />
@@ -967,9 +562,9 @@ export default function App() {
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm"
-                      disabled={status === "downloading"}
+                      disabled={session.isDownloading}
                       onClick={() => {
-                        void handleInspectUrl(item.url);
+                        void session.inspectUrl(item.url);
                         window.scrollTo({ top: 0, behavior: "smooth" });
                       }}
                       title="โหลดลิงก์นี้อีกครั้ง"
@@ -980,7 +575,7 @@ export default function App() {
                     <button
                       type="button"
                       className="button-icon-subtle"
-                      onClick={() => handleRemoveHistoryItem(item.date)}
+                      onClick={() => session.removeHistory(item.date)}
                       title="ลบรายการนี้ออกจากประวัติ"
                     >
                       <Trash2 size={13} />

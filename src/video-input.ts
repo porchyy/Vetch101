@@ -1,61 +1,108 @@
-export type PostType = "video" | "photo_post";
+import type {
+  MediaDetails,
+  VideoDetails,
+  PhotoAlbumDetails,
+  QualityOption,
+  PhotoImage,
+  AppError,
+  Status,
+} from "./models.ts";
+import { sessionReducer } from "./useDownloadSession.ts";
 
-export interface PhotoImage {
-  index: number;
-  preview_url: string;
-  download_url: string;
-  width?: number | null;
-  height?: number | null;
-}
+export type {
+  MediaDetails,
+  VideoDetails,
+  PhotoAlbumDetails,
+  QualityOption,
+  PhotoImage,
+  AppError,
+  Status,
+};
 
-export interface QualityOption {
-  id: string;
-  label: string;
-  ext: string;
-  format_spec: string;
-  filesize_approx?: number | null;
-}
-
-export interface VideoMetadata {
-  id: string;
-  title: string;
-  thumbnail: string;
-  duration?: number;
-  channel?: string;
-  filesize_approx?: number | null;
-  qualities: QualityOption[];
-  /** Defaults to "video" when absent (backward compat). */
-  post_type?: PostType;
-  /** Ordered images for photo posts; empty for video posts. */
-  images?: PhotoImage[];
-}
-
-export interface AppError { summary: string; detail?: string }
-export type Status = "idle" | "checking" | "ready" | "downloading" | "completed";
 export const initialVideoInput = {
-  url: "", meta: null as VideoMetadata | null, selectedQualityId: "",
-  status: "idle" as Status, error: null as AppError | null, revision: 0,
+  url: "",
+  meta: null as MediaDetails | null,
+  selectedQualityId: "",
+  status: "idle" as Status,
+  error: null as AppError | null,
+  revision: 0,
 };
 
 type Action =
   | { type: "change"; url: string }
   | { type: "inspect"; url: string; revision: number }
-  | { type: "success"; revision: number; meta: VideoMetadata }
+  | { type: "success"; revision: number; meta: MediaDetails }
   | { type: "failure"; revision: number; error: AppError }
-  | { type: "patch"; patch: Partial<Pick<typeof initialVideoInput, "status" | "error" | "selectedQualityId">> };
+  | {
+      type: "patch";
+      patch: Partial<
+        Pick<typeof initialVideoInput, "status" | "error" | "selectedQualityId">
+      >;
+    };
 
-export function videoInputReducer(state: typeof initialVideoInput, action: Action): typeof initialVideoInput {
+export function videoInputReducer(
+  state: typeof initialVideoInput,
+  action: Action,
+): typeof initialVideoInput {
   switch (action.type) {
-    case "change":
-      return { ...initialVideoInput, url: action.url, revision: state.revision + 1 };
-    case "inspect":
-      return { ...initialVideoInput, url: action.url, status: "checking", revision: action.revision };
-    case "success":
-      if (action.revision !== state.revision || state.status !== "checking") return state;
-      return { ...state, meta: action.meta, selectedQualityId: action.meta.qualities[0]?.id ?? "", status: "ready" };
-    case "failure":
-      if (action.revision !== state.revision || state.status !== "checking") return state;
-      return { ...state, status: "idle", error: action.error };
+    case "change": {
+      const res = sessionReducer(state as any, { type: "change_url", url: action.url });
+      return {
+        url: res.url,
+        meta: res.meta,
+        selectedQualityId: res.selectedQualityId,
+        status: res.status,
+        error: res.error,
+        revision: res.revision,
+      };
+    }
+    case "inspect": {
+      const res = sessionReducer(state as any, {
+        type: "start_inspect",
+        url: action.url,
+        revision: action.revision,
+      });
+      return {
+        url: res.url,
+        meta: res.meta,
+        selectedQualityId: res.selectedQualityId,
+        status: res.status,
+        error: res.error,
+        revision: res.revision,
+      };
+    }
+    case "success": {
+      const res = sessionReducer(state as any, {
+        type: "inspect_success",
+        revision: action.revision,
+        meta: action.meta,
+      });
+      if (res === (state as any)) return state;
+      return {
+        url: res.url,
+        meta: res.meta,
+        selectedQualityId: res.selectedQualityId,
+        status: res.status,
+        error: res.error,
+        revision: res.revision,
+      };
+    }
+    case "failure": {
+      const res = sessionReducer(state as any, {
+        type: "inspect_failure",
+        revision: action.revision,
+        error: action.error,
+      });
+      if (res === (state as any)) return state;
+      return {
+        url: res.url,
+        meta: res.meta,
+        selectedQualityId: res.selectedQualityId,
+        status: res.status,
+        error: res.error,
+        revision: res.revision,
+      };
+    }
     case "patch":
       return { ...state, ...action.patch };
   }

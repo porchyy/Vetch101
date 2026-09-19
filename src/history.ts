@@ -1,62 +1,147 @@
 export interface HistoryItem {
   id: string;
-  videoId: string;
-  url: string;
   title: string;
-  thumbnail: string;
-  filepath: string;
+  url: string;
+  platform: string;
   ext: string;
-  qualityLabel: string;
+  date: number;
+  filename?: string;
+  filepath?: string;
   filesize?: number | null;
-  timestamp: number;
+  thumbnail?: string;
 }
 
-const STORAGE_KEY = "vetch101_download_history";
-const MAX_HISTORY = 100;
+export const HISTORY_STORAGE_KEY = "vetch101_history_v3";
+export const MAX_HISTORY = 50;
 
-export function getHistory(): HistoryItem[] {
+export function detectPlatform(urlStr: string): string {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const host = new URL(urlStr).hostname.replace(/^www\./, "");
+    if (host.includes("youtube.com") || host.includes("youtu.be")) return "YouTube";
+    if (host.includes("tiktok.com")) return "TikTok";
+    if (host.includes("facebook.com") || host.includes("fb.watch")) return "Facebook";
+    if (host.includes("instagram.com")) return "Instagram";
+    if (host.includes("x.com") || host.includes("twitter.com")) return "X";
+    if (host.includes("soundcloud.com")) return "SoundCloud";
+    return host;
+  } catch {
+    return "เว็บวิดีโอ";
+  }
+}
+
+export interface StorageLike {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+function resolveStorage(storage?: StorageLike): StorageLike | null {
+  if (storage) return storage;
+  if (typeof localStorage !== "undefined") return localStorage;
+  return null;
+}
+
+export function getHistory(storage?: StorageLike): HistoryItem[] {
+  const store = resolveStorage(storage);
+  if (!store) return [];
+  try {
+    const raw = store.getItem(HISTORY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
 }
 
 export function addHistoryItem(
-  item: Omit<HistoryItem, "id" | "timestamp">
+  item: Omit<HistoryItem, "id" | "date"> & { id?: string; date?: number },
+  storage?: StorageLike,
 ): HistoryItem {
-  const history = getHistory();
-  const newItem: HistoryItem = {
-    ...item,
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    timestamp: Date.now(),
-  };
+  const store = resolveStorage(storage);
+  const history = getHistory(storage);
+  const now = item.date || Date.now();
+  const id = item.id || `${now}-${Math.random().toString(36).slice(2, 7)}`;
 
-  // Dedup by filepath, keep newest at the top up to MAX_HISTORY
-  const updated = [newItem, ...history.filter((h) => h.filepath !== item.filepath)].slice(
-    0,
-    MAX_HISTORY
+  const existingIndex = history.findIndex(
+    (h) => h.url === item.url || Boolean(item.filepath && h.filepath === item.filepath),
   );
 
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-  } catch {
-    // Graceful fallback if storage is restricted
+  let fullItem: HistoryItem;
+  let remaining: HistoryItem[];
+
+  if (existingIndex >= 0) {
+    const existing = history[existingIndex];
+    fullItem = {
+      ...existing,
+      ...item,
+      id: existing.id,
+      date: now,
+    };
+    remaining = history.filter((_, idx) => idx !== existingIndex);
+  } else {
+    fullItem = {
+      ...item,
+      id,
+      date: now,
+    };
+    remaining = history;
   }
-  return newItem;
+
+  const updated = [fullItem, ...remaining].slice(0, MAX_HISTORY);
+
+  if (store) {
+    try {
+      store.setItem(HISTORY_STORAGE_KEY, JSON.stringify(updated));
+    } catch {
+      // Graceful fallback if storage quota exceeded or restricted
+    }
+  }
+
+  return fullItem;
 }
 
-export function removeHistoryItem(id: string): void {
-  try {
-    const history = getHistory().filter((h) => h.id !== id);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
-  } catch {}
+export function removeHistoryItem(
+  idOrDate: string | number,
+  storage?: StorageLike,
+): HistoryItem[] {
+  const store = resolveStorage(storage);
+  const history = getHistory(storage);
+  const updated = history.filter((item) => {
+    if (typeof idOrDate === "number") {
+      return item.date !== idOrDate;
+    }
+    return item.id !== idOrDate && item.url !== idOrDate;
+  });
+
+  if (store) {
+    try {
+      store.setItem(HISTORY_STORAGE_KEY, JSON.stringify(updated));
+    } catch {}
+  }
+
+  return updated;
 }
 
-export function clearHistory(): void {
+export function removeHistoryByDate(
+  date: number,
+  storage?: StorageLike,
+): HistoryItem[] {
+  return removeHistoryItem(date, storage);
+}
+
+export function removeHistoryById(
+  id: string,
+  storage?: StorageLike,
+): HistoryItem[] {
+  return removeHistoryItem(id, storage);
+}
+
+export function clearHistory(storage?: StorageLike): void {
+  const store = resolveStorage(storage);
+  if (!store) return;
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    store.removeItem(HISTORY_STORAGE_KEY);
   } catch {}
 }
 
