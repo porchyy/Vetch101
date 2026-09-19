@@ -6,6 +6,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Vetch101 - Video Downloader</title>
     <meta name="description" content="วางลิงก์ เลือกวิดีโอหรือเสียง แล้วบันทึกไว้ในเครื่องด้วย Vetch101" />
+    <script>
+      (function() {
+        try {
+          var t = localStorage.getItem('vetch101_theme');
+          if (t === 'dark' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.setAttribute('data-theme', 'dark');
+          } else {
+            document.documentElement.setAttribute('data-theme', 'light');
+          }
+        } catch(e) {}
+      })();
+    </script>
   </head>
 
   <body>

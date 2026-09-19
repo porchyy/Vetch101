@@ -6,6 +6,7 @@ import {
   AlertCircle,
   ArrowDown,
   ArrowUpRight,
+  Cat,
   Check,
   Clipboard,
   Clock3,
@@ -16,15 +17,32 @@ import {
   Image as ImageIcon,
   Link2,
   LoaderCircle,
+  Moon,
   Play,
   RefreshCw,
   Sparkles,
+  Sun,
   Trash2,
   X,
 } from "lucide-react";
 import { formatBytes } from "./history.ts";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { MediaResultCard } from "./components/MediaResultCard";
+import { PixelCat } from "./components/PixelCat";
+import {
+  resolveInitialTheme,
+  getNextTheme,
+  applyThemeToDom,
+  saveThemeToStorage,
+  loadSavedTheme,
+  type Theme,
+} from "./theme-manager.ts";
+import {
+  deriveMascotMood,
+  loadSavedMascotVisibility,
+  saveMascotVisibility,
+  toggleMascotVisibility,
+} from "./mascot-state.ts";
 import { createUpdaterState, UpdaterAction, canStartUpdate, type UpdaterState } from "./updater-state";
 import { useDownloadSession } from "./useDownloadSession";
 import type { DependencyStatus } from "./models.ts";
@@ -47,10 +65,59 @@ export default function App() {
   // App updater state & actions
   const [updaterState, setUpdaterState] = useState<UpdaterState>(createUpdaterState());
 
+  // Visual Theme State
+  const [theme, setTheme] = useState<Theme>(() => {
+    const stored = loadSavedTheme();
+    const systemPrefersDark =
+      typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+    const initial = resolveInitialTheme(stored, !!systemPrefersDark);
+    applyThemeToDom(initial);
+    return initial;
+  });
+
+  const toggleTheme = () => {
+    setTheme((prev) => {
+      const next = getNextTheme(prev);
+      applyThemeToDom(next);
+      saveThemeToStorage(next);
+      return next;
+    });
+  };
+
+  // Pixel Cat Mascot State
+  const [mascotVisible, setMascotVisible] = useState<boolean>(() => {
+    return loadSavedMascotVisibility();
+  });
+
+  const handleToggleMascot = () => {
+    setMascotVisible((prev) => {
+      const next = toggleMascotVisibility(prev);
+      saveMascotVisibility(next);
+      return next;
+    });
+  };
+
+  const [recentSuccess, setRecentSuccess] = useState(false);
+
   const session = useDownloadSession({
     folder,
     isBlocked: updatingYtdlp || updateLock.current || updaterState.status === "applying",
     inputRef,
+  });
+
+  useEffect(() => {
+    if (session.status === "completed") {
+      setRecentSuccess(true);
+      const timer = window.setTimeout(() => setRecentSuccess(false), 4500);
+      return () => clearTimeout(timer);
+    }
+  }, [session.status]);
+
+  const mascotMood = deriveMascotMood({
+    isDownloading: session.isDownloading,
+    isInspecting: session.isInspecting,
+    hasError: !!session.error,
+    recentSuccess,
   });
 
   const { setError, setNotice } = session;
@@ -346,6 +413,28 @@ export default function App() {
               ไม่พบเครื่องมือดาวน์โหลด
             </span>
           )}
+
+          {/* Header Controls: Mascot and Theme */}
+          <div className="header-actions">
+            <button
+              type="button"
+              className={`button-icon-subtle ${mascotVisible ? "active" : ""}`}
+              onClick={handleToggleMascot}
+              title={mascotVisible ? "ซ่อนน้องแมวมาสคอต" : "แสดงน้องแมวมาสคอต"}
+              aria-label="เปิดหรือปิดมาสคอตน้องแมว"
+            >
+              <Cat size={14} />
+            </button>
+            <button
+              type="button"
+              className="button-icon-subtle"
+              onClick={toggleTheme}
+              title={theme === "dark" ? "เปลี่ยนเป็นโหมดสว่าง (Light Mode)" : "เปลี่ยนเป็นโหมดมืด (Dark Mode)"}
+              aria-label="สลับโหมดสี ดำ-ขาว"
+            >
+              {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -622,6 +711,9 @@ export default function App() {
       <footer className="app-footer">
         <span>Vetch101 · แอปดาวน์โหลดวิดีโอและเสียงสำหรับใช้งานส่วนตัว</span>
       </footer>
+
+      {/* Floating Pixel Cat Companion */}
+      <PixelCat mood={mascotMood} visible={mascotVisible} onToggle={handleToggleMascot} />
     </div>
   );
 }

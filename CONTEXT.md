@@ -22,3 +22,19 @@
   _Avoid_: manual download, browser redirect
 - **Update Progress Stream**: Continuous progress telemetry reporting byte count, total size, and percentage during update downloads.
   _Avoid_: silent wait, indeterminate spinner
+
+## Visual Themes & Appearance
+- **Light Theme**: Default bright, warm terracotta and cream palette providing high daylight contrast.
+- **Dark Theme**: Charcoal and dark-slate palette engineered for low glare and nocturnal comfort.
+- **Theme Switcher**: Header action (☀️/🌙) toggling `data-theme` and persisting the preference to local storage.
+  _Avoid_: unstyled flash, non-persistent mode
+
+## Companion Mascot
+- **Mascot Companion**: Interactive floating pixel-art cat animating in the lower-right viewport corner.
+- **Mascot Moods**: Five pipeline-synchronized visual behaviors:
+  - `Idle`: Cat resting or blinking calmly while waiting for user interaction.
+  - `Inspecting`: Cat curiously investigating the submitted media link.
+  - `Downloading`: Cat actively running and carrying the download workload.
+  - `Success`: Cat happily celebrating completion with stars or hearts.
+  - `Error`: Cat dizzy or sweating to communicate an issue playfully.
+- **Mascot Toggle**: User control allowing toggling companion visibility without impeding media operations.
