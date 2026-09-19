@@ -5,6 +5,8 @@ import {
   getNextTheme,
   THEME_STORAGE_KEY,
   applyThemeToDom,
+  saveThemeToStorage,
+  loadSavedTheme,
 } from '../src/theme-manager.ts';
 
 test('resolveInitialTheme respects stored light preference regardless of system', () => {
@@ -46,3 +48,38 @@ test('applyThemeToDom sets data-theme attribute on target element', () => {
   applyThemeToDom('light', mockElement);
   assert.equal(mockElement.getAttribute('data-theme'), 'light');
 });
+
+test('saveThemeToStorage and loadSavedTheme roundtrip correctly', () => {
+  const store = {};
+  const mockStorage = {
+    getItem(key) {
+      return store[key] || null;
+    },
+    setItem(key, val) {
+      store[key] = val;
+    },
+  };
+
+  assert.equal(loadSavedTheme(mockStorage), null);
+  saveThemeToStorage('dark', mockStorage);
+  assert.equal(loadSavedTheme(mockStorage), 'dark');
+  assert.equal(store[THEME_STORAGE_KEY], 'dark');
+
+  saveThemeToStorage('light', mockStorage);
+  assert.equal(loadSavedTheme(mockStorage), 'light');
+});
+
+test('saveThemeToStorage handles storage exceptions gracefully', () => {
+  const failingStorage = {
+    getItem() {
+      throw new Error('QuotaExceeded');
+    },
+    setItem() {
+      throw new Error('QuotaExceeded');
+    },
+  };
+
+  assert.doesNotThrow(() => saveThemeToStorage('dark', failingStorage));
+  assert.equal(loadSavedTheme(failingStorage), null);
+});
+

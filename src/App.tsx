@@ -6,7 +6,6 @@ import {
   AlertCircle,
   ArrowDown,
   ArrowUpRight,
-  Cat,
   Check,
   Clipboard,
   Clock3,
@@ -18,6 +17,7 @@ import {
   Link2,
   LoaderCircle,
   Moon,
+  PawPrint,
   Play,
   RefreshCw,
   Sparkles,
@@ -106,12 +106,12 @@ export default function App() {
   });
 
   useEffect(() => {
-    if (session.status === "completed") {
+    if (session.status === "completed" || (session.status === "ready" && session.meta)) {
       setRecentSuccess(true);
       const timer = window.setTimeout(() => setRecentSuccess(false), 4500);
       return () => clearTimeout(timer);
     }
-  }, [session.status]);
+  }, [session.status, session.meta]);
 
   const mascotMood = deriveMascotMood({
     isDownloading: session.isDownloading,
@@ -423,7 +423,7 @@ export default function App() {
               title={mascotVisible ? "ซ่อนน้องแมวมาสคอต" : "แสดงน้องแมวมาสคอต"}
               aria-label="เปิดหรือปิดมาสคอตน้องแมว"
             >
-              <Cat size={14} />
+              <PawPrint size={14} />
             </button>
             <button
               type="button"
@@ -713,7 +713,7 @@ export default function App() {
       </footer>
 
       {/* Floating Pixel Cat Companion */}
-      <PixelCat mood={mascotMood} visible={mascotVisible} onToggle={handleToggleMascot} />
+      <PixelCat mood={mascotMood} visible={mascotVisible} />
     </div>
   );
 }

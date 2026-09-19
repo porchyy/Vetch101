@@ -4,7 +4,6 @@ import type { MascotMood } from "../mascot-state";
 interface PixelCatProps {
   mood: MascotMood;
   visible: boolean;
-  onToggle?: () => void;
 }
 
 const MOOD_MESSAGES: Record<MascotMood, string> = {
