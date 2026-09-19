@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { parseVideoUrl } from "./video-url.ts";
 import {
   AlertCircle,
@@ -170,12 +171,22 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [handleCheckAppUpdate, checkingDeps, deps]);
 
-  const isUpdateInstalled = "isInstalled" in updaterState ? Boolean(updaterState.isInstalled) : false;
+  useEffect(() => {
+    const unlisten = listen<{ downloaded: number; total: number; percentage: number }>(
+      "update-progress",
+      (event) => {
+        const { percentage, downloaded, total } = event.payload;
+        setUpdaterState((prev) => UpdaterAction.progress(prev, percentage, downloaded, total));
+      }
+    );
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, []);
 
   useEffect(() => {
     if (
       updaterState.status !== "available" ||
-      !isUpdateInstalled ||
       appUpdateLock.current ||
       updateLock.current ||
       updatingYtdlp ||
@@ -199,7 +210,6 @@ export default function App() {
       });
   }, [
     updaterState.status,
-    isUpdateInstalled,
     updatingYtdlp,
     session.isDownloading,
     session.isInspecting,
@@ -236,14 +246,6 @@ export default function App() {
       } catch {}
     }
     setUpdaterState(UpdaterAction.dismiss(updaterState));
-  };
-
-  const handleOpenUrl = async (urlStr: string) => {
-    try {
-      await invoke("open_external_url", { url: urlStr });
-    } catch {
-      window.open(urlStr, "_blank");
-    }
   };
 
   // Destination folder management
@@ -355,7 +357,6 @@ export default function App() {
           isInspecting={session.isInspecting}
           onStartUpdate={handleStartAppUpdate}
           onDismiss={handleDismissAppUpdate}
-          onOpenExternalUrl={handleOpenUrl}
         />
 
         {updateMsg && (

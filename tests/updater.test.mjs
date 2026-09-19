@@ -55,10 +55,22 @@ test('updaterState handles lifecycle transitions', () => {
     assert.equal(state.progress, 0);
   }
 
-  state = UpdaterAction.progress(state, 45);
+  state = UpdaterAction.progress(state, 45, 45000, 100000);
   assert.equal(state.status, 'downloading');
   if (state.status === 'downloading') {
     assert.equal(state.progress, 45);
+    assert.equal(state.downloadedBytes, 45000);
+    assert.equal(state.totalBytes, 100000);
+  }
+
+  // Progress clamping
+  state = UpdaterAction.progress(state, 150);
+  if (state.status === 'downloading') {
+    assert.equal(state.progress, 100);
+  }
+  state = UpdaterAction.progress(state, -10);
+  if (state.status === 'downloading') {
+    assert.equal(state.progress, 0);
   }
 
   state = UpdaterAction.ready(state);
@@ -74,14 +86,22 @@ test('updaterState handles lifecycle transitions', () => {
   assert.equal(state.status, 'dismissed');
 });
 
-test('only verified staged installed updates can be applied', () => {
-  const available = UpdaterAction.available(createUpdaterState(), {version: '0.3.0', isInstalled: true});
-  assert.equal(UpdaterAction.ready(available).status, 'available');
-  assert.equal(UpdaterAction.apply(available).status, 'available');
-  const ready = UpdaterAction.ready(UpdaterAction.startDownload(available));
-  assert.equal(UpdaterAction.apply(ready).status, 'applying');
-  const portable = UpdaterAction.available(createUpdaterState(), {version: '0.3.0', isInstalled: false});
-  assert.equal(UpdaterAction.startDownload(portable).status, 'available');
+test('both verified staged installed and portable updates can be applied', () => {
+  // Installed flow
+  const installedAvailable = UpdaterAction.available(createUpdaterState(), {version: '0.3.0', isInstalled: true});
+  assert.equal(UpdaterAction.ready(installedAvailable).status, 'available');
+  assert.equal(UpdaterAction.apply(installedAvailable).status, 'available');
+  const installedReady = UpdaterAction.ready(UpdaterAction.startDownload(installedAvailable));
+  assert.equal(UpdaterAction.apply(installedReady).status, 'applying');
+
+  // Portable flow
+  const portableAvailable = UpdaterAction.available(createUpdaterState(), {version: '0.3.0', isInstalled: false});
+  assert.equal(UpdaterAction.ready(portableAvailable).status, 'available');
+  assert.equal(UpdaterAction.apply(portableAvailable).status, 'available');
+  const portableDownloading = UpdaterAction.startDownload(portableAvailable);
+  assert.equal(portableDownloading.status, 'downloading');
+  const portableReady = UpdaterAction.ready(portableDownloading);
+  assert.equal(UpdaterAction.apply(portableReady).status, 'applying');
 });
 
 test('version comparison rejects malformed components', () => {

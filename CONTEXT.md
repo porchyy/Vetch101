@@ -16,3 +16,9 @@
 - **Update Staging**: Silent background download of the verified installer payload while the application remains fully interactive.
 - **Ready State**: State where the update payload is fully staged on disk, awaiting user confirmation to apply and restart.
 - **Concurrency Guard**: Protection ensuring application updates or restarts are strictly rejected while media downloads are active.
+- **All-in-One Distribution**: Complete self-contained distribution packaging the Vetch101 GUI alongside external engine dependencies (`ffmpeg`, `ffprobe`, `yt-dlp`) in a single payload.
+  _Avoid_: standalone installer, monolithic bundle
+- **In-App Update Staging**: Real-time downloading of update assets directly within the application client without delegating to external web browsers.
+  _Avoid_: manual download, browser redirect
+- **Update Progress Stream**: Continuous progress telemetry reporting byte count, total size, and percentage during update downloads.
+  _Avoid_: silent wait, indeterminate spinner

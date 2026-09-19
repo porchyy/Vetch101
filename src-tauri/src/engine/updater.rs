@@ -22,20 +22,23 @@ pub struct AppUpdater {
 
 pub struct Release {
     pub info: AppUpdateInfo,
-    digest: Option<String>,
-    size: u64,
+    pub digest: Option<String>,
+    pub size: u64,
+    pub portable_digest: Option<String>,
+    pub portable_size: u64,
 }
 
 pub struct StagedInstaller {
-    directory: PathBuf,
-    digest: String,
-    size: u64,
+    pub directory: PathBuf,
+    pub file_path: PathBuf,
+    pub digest: Option<String>,
+    pub size: u64,
+    pub is_installed: bool,
 }
 
 impl Drop for StagedInstaller {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(self.directory.join("Vetch101_Update_Setup.exe"));
-        let _ = std::fs::remove_dir(&self.directory);
+        let _ = std::fs::remove_dir_all(&self.directory);
     }
 }
 
@@ -85,6 +88,8 @@ fn parse_release(json: &str, current_version: &str) -> Result<Release, String> {
     let mut portable_url = None;
     let mut digest = None;
     let mut size = 0;
+    let mut portable_digest = None;
+    let mut portable_size = 0;
     for asset in assets {
         let name = asset["name"].as_str().unwrap_or("");
         if name != setup_name && name != portable_name {
@@ -96,16 +101,21 @@ fn parse_release(json: &str, current_version: &str) -> Result<Release, String> {
         if url != format!("https://github.com/porchyy/Vetch101/releases/download/{tag}/{name}") {
             return Err("Asset URL does not match release tag".into());
         }
+        let asset_digest = asset["digest"]
+            .as_str()
+            .and_then(|v| v.strip_prefix("sha256:"))
+            .filter(|v| v.len() == 64 && v.bytes().all(|b| b.is_ascii_hexdigit()))
+            .map(str::to_ascii_lowercase);
+        let asset_size = asset["size"].as_u64().unwrap_or(0);
+
         if name == setup_name {
             setup_url = Some(url.to_owned());
-            digest = asset["digest"]
-                .as_str()
-                .and_then(|v| v.strip_prefix("sha256:"))
-                .filter(|v| v.len() == 64 && v.bytes().all(|b| b.is_ascii_hexdigit()))
-                .map(str::to_ascii_lowercase);
-            size = asset["size"].as_u64().unwrap_or(0);
+            digest = asset_digest;
+            size = asset_size;
         } else {
             portable_url = Some(url.to_owned());
+            portable_digest = asset_digest;
+            portable_size = asset_size;
         }
     }
     if setup_url.is_none() && portable_url.is_none() {
@@ -123,6 +133,8 @@ fn parse_release(json: &str, current_version: &str) -> Result<Release, String> {
         },
         digest,
         size,
+        portable_digest,
+        portable_size,
     })
 }
 
@@ -167,7 +179,7 @@ pub fn check_github_release(current_version: &str) -> Result<Release, String> {
     parse_release(&String::from_utf8_lossy(&output.stdout), current_version)
 }
 
-fn verify_installer(path: &Path, digest: &str, size: u64) -> Result<File, String> {
+pub fn verify_installer(path: &Path, digest: &str, size: u64) -> Result<File, String> {
     let mut options = File::options();
     options.read(true);
     // Keep a read-only sharing handle alive through launch to prevent replacement after verification.
@@ -185,74 +197,168 @@ fn verify_installer(path: &Path, digest: &str, size: u64) -> Result<File, String
         if len == 0 {
             break;
         }
-        if first && !buffer[..len].starts_with(b"MZ") {
-            return Err("Invalid Windows installer".into());
+        if first {
+            let is_zip = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.eq_ignore_ascii_case("zip"))
+                .unwrap_or(false);
+            if is_zip {
+                if !buffer[..len].starts_with(b"PK") {
+                    return Err("Invalid Portable ZIP archive".into());
+                }
+            } else if !buffer[..len].starts_with(b"MZ") {
+                return Err("Invalid Windows installer".into());
+            }
         }
         first = false;
         hash.update(&buffer[..len]);
     }
-    if format!("{:x}", hash.finalize()) != digest {
+    if digest.is_empty() || format!("{:x}", hash.finalize()) != digest {
         return Err("Installer checksum mismatch".into());
     }
     Ok(file)
 }
 
 pub fn download_installer(release: &Release) -> Result<StagedInstaller, String> {
-    if !is_running_installed() || !release.info.available {
+    download_installer_with_progress(release, |_, _, _| {})
+}
+
+pub fn download_installer_with_progress<F>(
+    release: &Release,
+    mut on_progress: F,
+) -> Result<StagedInstaller, String>
+where
+    F: FnMut(u64, u64, u32) + Send + 'static,
+{
+    if !release.info.available {
         return Err("This distribution cannot install an update".into());
     }
-    let url = release
-        .info
-        .setup_url
-        .as_deref()
-        .ok_or("Missing installer asset")?;
-    let digest = release
-        .digest
-        .clone()
-        .ok_or("GitHub release has no SHA-256 checksum; cannot safely install")?;
+
+    let (url, digest, size, filename) = if release.info.is_installed {
+        let url = release
+            .info
+            .setup_url
+            .as_deref()
+            .ok_or("Missing installer asset")?;
+        let digest = release
+            .digest
+            .clone()
+            .ok_or("GitHub release has no SHA-256 checksum for setup installer; cannot safely install")?;
+        (url, digest, release.size, "Vetch101_Update_Setup.exe")
+    } else {
+        let url = release
+            .info
+            .portable_url
+            .as_deref()
+            .ok_or("Missing portable asset")?;
+        let digest = release
+            .portable_digest
+            .clone()
+            .ok_or("GitHub release has no SHA-256 checksum for portable archive; cannot safely install")?;
+        (url, digest, release.portable_size, "Vetch101_Update_Portable.zip")
+    };
+
     let unique = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| e.to_string())?
         .as_nanos();
     let directory =
         std::env::temp_dir().join(format!("Vetch101-update-{}-{unique}", std::process::id()));
-    std::fs::create_dir(&directory).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+    let path = directory.join(filename);
     let staged = StagedInstaller {
         directory,
-        digest,
-        size: release.size,
+        file_path: path.clone(),
+        digest: Some(digest),
+        size,
+        is_installed: release.info.is_installed,
     };
-    let path = staged.directory.join("Vetch101_Update_Setup.exe");
-    let output = curl()
-        .arg("--output")
-        .arg(&path)
-        .arg(url)
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !output.status.success() {
-        return Err(format!(
-            "Installer download failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
+
+    let mut cmd = curl();
+    cmd.arg("--output").arg(&path).arg(url);
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+
+    let target_size = if size > 0 { size } else { 1 };
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if !status.success() {
+                    return Err(format!("Download failed with status: {status}"));
+                }
+                break;
+            }
+            Ok(None) => {
+                if let Ok(meta) = std::fs::metadata(&path) {
+                    let current = meta.len();
+                    let pct = ((current as f64 / target_size as f64) * 100.0).clamp(0.0, 99.0) as u32;
+                    on_progress(current, size, pct);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+            Err(e) => return Err(format!("Download monitor error: {e}")),
+        }
     }
-    verify_installer(&path, &staged.digest, staged.size)?;
+
+    on_progress(size, size, 100);
+    verify_installer(&path, staged.digest.as_deref().unwrap_or(""), staged.size)?;
     Ok(staged)
 }
 
 pub fn launch_installer_and_exit(staged: &StagedInstaller) -> Result<(), String> {
-    if !is_running_installed() {
-        return Err("Portable distribution cannot run the installer".into());
+    if staged.is_installed {
+        let digest = staged.digest.as_deref().ok_or("Missing staged installer checksum")?;
+        let _verified = verify_installer(&staged.file_path, digest, staged.size)?;
+        let mut cmd = Command::new(&staged.file_path);
+        cmd.args(["/S", "/UPDATE", "/R"]);
+        // Explicit breakaway keeps only the installer alive when the app's Job Object closes.
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(CREATE_NO_WINDOW | 0x01000000);
+        cmd.spawn()
+            .map_err(|e| format!("Cannot start installer: {e}"))?;
+        std::process::exit(0);
+    } else {
+        let digest = staged.digest.as_deref().ok_or("Missing staged portable checksum")?;
+        let _verified = verify_installer(&staged.file_path, digest, staged.size)?;
+        let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        let target_dir = current_exe
+            .parent()
+            .ok_or("Cannot determine application directory")?;
+        let pid = std::process::id();
+        let bat_path = staged.directory.join("apply-portable.bat");
+
+        let bat_content = format!(
+            "@echo off\r\n\
+            set PID={pid}\r\n\
+            set ARCHIVE={archive}\r\n\
+            set TARGET_DIR={target_dir}\r\n\
+            \r\n\
+            :wait_loop\r\n\
+            tasklist /fi \"PID eq %PID%\" 2>nul | find \"%PID%\" >nul\r\n\
+            if not errorlevel 1 (\r\n\
+                timeout /t 1 /nobreak >nul\r\n\
+                goto wait_loop\r\n\
+            )\r\n\
+            \r\n\
+            tar -xf \"%ARCHIVE%\" -C \"%TARGET_DIR%\"\r\n\
+            start \"\" \"%TARGET_DIR%\\Vetch101.exe\"\r\n\
+            del /f /q \"%ARCHIVE%\" 2>nul\r\n\
+            (goto) 2>nul & rmdir /s /q \"%~dp0\" 2>nul\r\n",
+            pid = pid,
+            archive = staged.file_path.display(),
+            target_dir = target_dir.display(),
+        );
+
+        std::fs::write(&bat_path, bat_content).map_err(|e| e.to_string())?;
+
+        let mut cmd = Command::new("cmd.exe");
+        cmd.args(["/C", &bat_path.to_string_lossy()]);
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(CREATE_NO_WINDOW | 0x01000000);
+        cmd.spawn()
+            .map_err(|e| format!("Cannot spawn portable update script: {e}"))?;
+        std::process::exit(0);
     }
-    let path = staged.directory.join("Vetch101_Update_Setup.exe");
-    let _verified = verify_installer(&path, &staged.digest, staged.size)?;
-    let mut cmd = Command::new(&path);
-    cmd.args(["/S", "/UPDATE", "/R"]);
-    // Explicit breakaway keeps only the installer alive when the app's Job Object closes.
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(CREATE_NO_WINDOW | 0x01000000);
-    cmd.spawn()
-        .map_err(|e| format!("Cannot start installer: {e}"))?;
-    std::process::exit(0);
 }
 
 #[cfg(test)]
@@ -343,5 +449,58 @@ mod tests {
             Some("d4bf57ea81194aad20e43c6739aaa2ddb03717cf35ef9fa07caa0915514265d7")
         );
         assert_eq!(release.size, 15);
+    }
+
+    #[test]
+    fn portable_verification_verifies_zip_header_and_checksum() {
+        let path = std::env::temp_dir().join(format!("vetch101-verify-{}.zip", std::process::id()));
+        let payload = b"PK\x03\x04portable test zip archive";
+        let size = payload.len() as u64;
+        std::fs::write(&path, payload).unwrap();
+        let mut hasher = Sha256::new();
+        hasher.update(payload);
+        let digest = format!("{:x}", hasher.finalize());
+        assert!(verify_installer(&path, &digest, size).is_ok());
+        // Wrong size
+        assert!(verify_installer(&path, &digest, size + 1).is_err());
+        // Non-zip header with .zip extension
+        std::fs::write(&path, b"MZfake zip content").unwrap();
+        assert!(verify_installer(&path, &digest, 18).is_err());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn parse_release_captures_both_setup_and_portable_assets() {
+        let sample = r#"{
+            "tag_name": "v0.3.0",
+            "body": "Fixed critical issues",
+            "assets": [
+                {
+                    "name": "Vetch101_0.3.0_x64-setup.exe",
+                    "browser_download_url": "https://github.com/porchyy/Vetch101/releases/download/v0.3.0/Vetch101_0.3.0_x64-setup.exe",
+                    "digest": "sha256:d4bf57ea81194aad20e43c6739aaa2ddb03717cf35ef9fa07caa0915514265d7",
+                    "size": 4200000
+                },
+                {
+                    "name": "Vetch101_0.3.0_x64-portable.zip",
+                    "browser_download_url": "https://github.com/porchyy/Vetch101/releases/download/v0.3.0/Vetch101_0.3.0_x64-portable.zip",
+                    "digest": "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+                    "size": 135000000
+                }
+            ]
+        }"#;
+
+        let release = parse_release(sample, "0.2.0").unwrap();
+        assert!(release.info.available);
+        assert_eq!(
+            release.digest.as_deref(),
+            Some("d4bf57ea81194aad20e43c6739aaa2ddb03717cf35ef9fa07caa0915514265d7")
+        );
+        assert_eq!(release.size, 4200000);
+        assert_eq!(
+            release.portable_digest.as_deref(),
+            Some("abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
+        );
+        assert_eq!(release.portable_size, 135000000);
     }
 }

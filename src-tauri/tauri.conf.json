@@ -29,7 +29,8 @@
     "active": true,
     "targets": ["nsis", "msi"],
     "resources": {
-      "../WebView2Loader.dll": "WebView2Loader.dll"
+      "../WebView2Loader.dll": "WebView2Loader.dll",
+      "../dist-desktop/bin/*": "bin/"
     },
     "icon": [
       "icons/32x32.png",

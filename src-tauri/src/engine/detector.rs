@@ -68,20 +68,22 @@ pub fn detect_ffmpeg_and_ffprobe(app_bin_dir: &Path) -> (Option<String>, Option<
         return (Some(ffmpeg_str), ffprobe_str);
     }
 
-    // 2. Adjacent to current executable (portable bundle)
+    // 2. Adjacent or bundled with current executable (portable and installed bundles)
     if let Ok(current_exe) = std::env::current_exe() {
         if let Some(exe_dir) = current_exe.parent() {
-            let bundled_ffmpeg = exe_dir.join("bin").join("ffmpeg.exe");
-            let bundled_ffprobe = exe_dir.join("bin").join("ffprobe.exe");
-            if bundled_ffmpeg.exists() {
-                return (
-                    Some(bundled_ffmpeg.to_string_lossy().to_string()),
-                    if bundled_ffprobe.exists() {
-                        Some(bundled_ffprobe.to_string_lossy().to_string())
-                    } else {
-                        None
-                    },
-                );
+            for sub in ["bin", "resources/bin"] {
+                let bundled_ffmpeg = exe_dir.join(sub).join("ffmpeg.exe");
+                let bundled_ffprobe = exe_dir.join(sub).join("ffprobe.exe");
+                if bundled_ffmpeg.exists() {
+                    return (
+                        Some(bundled_ffmpeg.to_string_lossy().to_string()),
+                        if bundled_ffprobe.exists() {
+                            Some(bundled_ffprobe.to_string_lossy().to_string())
+                        } else {
+                            None
+                        },
+                    );
+                }
             }
         }
     }
@@ -160,14 +162,16 @@ pub fn detect_ytdlp(app_bin_dir: &Path) -> (Option<String>, bool, Option<String>
         return (Some(path_str), false, version);
     }
 
-    // 2. Adjacent to current executable
+    // 2. Adjacent or bundled with current executable (portable and installed bundles)
     if let Ok(current_exe) = std::env::current_exe() {
         if let Some(exe_dir) = current_exe.parent() {
-            let bundled_ytdlp = exe_dir.join("bin").join("yt-dlp.exe");
-            if bundled_ytdlp.exists() {
-                let path_str = bundled_ytdlp.to_string_lossy().to_string();
-                let version = get_tool_version(&path_str, &["--version"]);
-                return (Some(path_str), false, version);
+            for sub in ["bin", "resources/bin"] {
+                let bundled_ytdlp = exe_dir.join(sub).join("yt-dlp.exe");
+                if bundled_ytdlp.exists() {
+                    let path_str = bundled_ytdlp.to_string_lossy().to_string();
+                    let version = get_tool_version(&path_str, &["--version"]);
+                    return (Some(path_str), false, version);
+                }
             }
         }
     }

@@ -20,7 +20,7 @@ export type UpdaterState =
   | { status: 'idle' }
   | { status: 'checking' }
   | ({ status: 'available' } & UpdateMetadata)
-  | ({ status: 'downloading'; progress: number } & UpdateMetadata)
+  | ({ status: 'downloading'; progress: number; downloadedBytes?: number; totalBytes?: number } & UpdateMetadata)
   | ({ status: 'applying' } & UpdateMetadata)
   | ({ status: 'ready' } & UpdateMetadata)
   | { status: 'error'; message: string }
@@ -84,7 +84,7 @@ export const UpdaterAction = {
   },
 
   startDownload(state: UpdaterState): UpdaterState {
-    if (state.status !== 'available' || !state.isInstalled) {
+    if (state.status !== 'available') {
       return state;
     }
     const meta: UpdateMetadata = {
@@ -101,13 +101,15 @@ export const UpdaterAction = {
     };
   },
 
-  progress(state: UpdaterState, progress: number): UpdaterState {
+  progress(state: UpdaterState, progress: number, downloadedBytes?: number, totalBytes?: number): UpdaterState {
     if (state.status !== 'downloading') {
       return state;
     }
     return {
       ...state,
-      progress: Math.min(100, Math.max(0, progress)),
+      progress: Math.min(100, Math.max(0, Math.round(progress))),
+      downloadedBytes: downloadedBytes ?? ('downloadedBytes' in state ? state.downloadedBytes : undefined),
+      totalBytes: totalBytes ?? ('totalBytes' in state ? state.totalBytes : undefined),
     };
   },
 
@@ -126,7 +128,7 @@ export const UpdaterAction = {
   },
 
   apply(state: UpdaterState): UpdaterState {
-    return state.status === 'ready' && state.isInstalled ? { ...state, status: 'applying' } : state;
+    return state.status === 'ready' ? { ...state, status: 'applying' } : state;
   },
 
   error(_state: UpdaterState, message: string): UpdaterState {

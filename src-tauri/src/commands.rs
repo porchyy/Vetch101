@@ -1,7 +1,7 @@
 use crate::engine::detector::{get_binaries, stage_engine_update, update_ytdlp_tool};
 use crate::engine::downloader::DownloadManager;
 use crate::engine::metadata::fetch_media_details;
-use crate::engine::updater::{check_github_release, download_installer, launch_installer_and_exit, AppUpdater};
+use crate::engine::updater::{check_github_release, launch_installer_and_exit, AppUpdater};
 use crate::models::{AppUpdateInfo, DependencyStatus, DownloadOutcome, MediaDetails};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -208,17 +208,31 @@ pub async fn check_app_update(updater: State<'_, Arc<Mutex<AppUpdater>>>) -> Res
 
 #[tauri::command]
 pub async fn stage_app_update(
-    state: State<'_, Arc<DownloadManager>>,
+    app: AppHandle,
     updater: State<'_, Arc<Mutex<AppUpdater>>>,
 ) -> Result<(), String> {
-    // Admission check only: staging writes a separate file and need not block later media work.
-    let admission = state.inner().begin()?;
-    drop(admission);
     let updater = updater.inner().clone();
     tokio::task::spawn_blocking(move || {
         let mut updater = updater.try_lock().map_err(|_| "Update already in progress")?;
         let release = updater.release.as_ref().ok_or("Check for updates first")?;
-        let staged = download_installer(release)?;
+        let app_handle = app.clone();
+        let staged = crate::engine::updater::download_installer_with_progress(release, move |downloaded, total, percentage| {
+            #[derive(serde::Serialize, Clone)]
+            struct UpdateProgressPayload {
+                downloaded: u64,
+                total: u64,
+                percentage: u32,
+            }
+            use tauri::Emitter;
+            let _ = app_handle.emit(
+                "update-progress",
+                UpdateProgressPayload {
+                    downloaded,
+                    total,
+                    percentage,
+                },
+            );
+        })?;
         updater.staged = Some(staged);
         Ok(())
     }).await.map_err(|e| e.to_string())?
