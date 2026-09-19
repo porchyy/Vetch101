@@ -815,6 +815,10 @@ export default function App() {
             updatingYtdlp={updatingYtdlp}
             onStartDownload={handleStartPhotoDownload}
             onCancelDownload={handleCancelDownload}
+            onDownloadAgain={() => {
+              setStatus("ready");
+              setNotice("");
+            }}
           />
         ) : meta ? (
           <VideoResultCard
@@ -831,6 +835,10 @@ export default function App() {
             updatingYtdlp={updatingYtdlp}
             onStartDownload={handleStartDownload}
             onCancelDownload={handleCancelDownload}
+            onDownloadAgain={() => {
+              setStatus("ready");
+              setNotice("");
+            }}
           />
         ) : null}
 

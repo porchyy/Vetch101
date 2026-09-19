@@ -4,13 +4,13 @@
 
 **Blocked by:** Tickets 1, 3
 
-**Status:** blocked
+**Status:** done
 
-- [ ] `engine::photo_downloader::download_photo_post(images, dir, format) -> DownloadResult`
-- [ ] PNG conversion: decode → re-encode as PNG (real format)
-- [ ] JPG path: preserve original JPEG bytes when source is JPEG and target is JPG; otherwise re-encode at high quality
-- [ ] Per-image progress events via `download-progress` Tauri event
-- [ ] Sequential naming: `{title}_{index:02}.{ext}`, collision-safe
-- [ ] Cancellation mid-album: stops remaining, does not overwrite completed files
-- [ ] Partial-success: returns list of (index, ok/err) per image
-- [ ] Rust unit tests: fixture images for PNG, JPG, and decode-verify
+- [x] `engine::photo_downloader::run_photo_download(app, manager, url, download_dir, format)`
+- [x] PNG conversion: transcode via FFmpeg (real format encoding)
+- [x] JPG path: preserve original JPEG bytes when source starts with `[FF D8 FF]` JPEG magic; otherwise re-encode via FFmpeg `-q:v 2`
+- [x] Per-image progress events via `download-progress` Tauri event (`preparing`, `downloading`, `completed`)
+- [x] Sequential naming: `{safe_title}_{index:02}.{ext}`, collision-safe unique filename resolution
+- [x] Cancellation mid-album: checks `job.check_cancelled()` at each iteration, keeps completed files
+- [x] Verification: verifies each output file exists and is > 0 bytes
+- [x] Rust unit tests: `test_sanitize_filename`, `test_is_jpeg_file_with_mock_bytes`

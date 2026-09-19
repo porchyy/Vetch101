@@ -11,6 +11,24 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub fn fetch_video_metadata(url: &str) -> Result<VideoMetadata, String> {
     let url = super::validate_url(url)?;
+
+    // If it's a TikTok URL, check if it is a photo post (carousel/slideshow)
+    if super::photo_extractor::is_tiktok_url(&url) {
+        match super::photo_extractor::fetch_tiktok_photo_metadata(&url) {
+            Ok(Some(photo_meta)) => return Ok(photo_meta),
+            Ok(None) => {
+                // Not a photo post, fall through to standard video extraction
+            }
+            Err(e) => {
+                // If it explicitly has "/photo/" in the URL and failed, report the error directly
+                if url.contains("/photo/") {
+                    return Err(e);
+                }
+                // Otherwise fall through to yt-dlp
+            }
+        }
+    }
+
     let binaries = get_binaries();
     let ytdlp = binaries
         .ytdlp_path

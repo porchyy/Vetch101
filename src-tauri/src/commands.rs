@@ -126,6 +126,18 @@ pub async fn start_download(
 }
 
 #[tauri::command]
+pub async fn download_photo_post(
+    app: AppHandle,
+    state: State<'_, Arc<DownloadManager>>,
+    url: String,
+    download_dir: String,
+    format: String,
+) -> Result<usize, String> {
+    let manager = state.inner().clone();
+    crate::engine::photo_downloader::run_photo_download(app, manager, url, download_dir, format).await
+}
+
+#[tauri::command]
 pub async fn cancel_download(state: State<'_, Arc<DownloadManager>>) -> Result<(), String> {
     state.inner().cancel().await
 }

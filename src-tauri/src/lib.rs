@@ -52,6 +52,7 @@ pub fn run() {
             reveal_in_folder,
             fetch_metadata,
             start_download,
+            download_photo_post,
             cancel_download,
             check_app_update,
             install_app_update,

@@ -39,6 +39,7 @@ interface Props {
   updatingYtdlp: boolean;
   onStartDownload: () => void;
   onCancelDownload: () => void;
+  onDownloadAgain?: () => void;
 }
 
 export function VideoResultCard({
@@ -55,6 +56,7 @@ export function VideoResultCard({
   updatingYtdlp,
   onStartDownload,
   onCancelDownload,
+  onDownloadAgain,
 }: Props) {
   const [showExtras, setShowExtras] = useState(false);
 
@@ -165,6 +167,15 @@ export function VideoResultCard({
                 <FolderOpen size={16} />
                 เปิดโฟลเดอร์
               </button>
+              {onDownloadAgain && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={onDownloadAgain}
+                >
+                  ดาวน์โหลดอีกครั้ง
+                </button>
+              )}
             </div>
           </div>
         ) : (

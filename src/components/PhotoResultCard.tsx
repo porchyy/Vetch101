@@ -17,6 +17,7 @@ interface Props {
   updatingYtdlp: boolean;
   onStartDownload: () => void;
   onCancelDownload: () => void;
+  onDownloadAgain?: () => void;
 }
 
 export function PhotoResultCard({
@@ -33,6 +34,7 @@ export function PhotoResultCard({
   updatingYtdlp,
   onStartDownload,
   onCancelDownload,
+  onDownloadAgain,
 }: Props) {
   const images = meta.images ?? [];
   const imageCount = images.length;
@@ -165,6 +167,15 @@ export function PhotoResultCard({
                 <FolderOpen size={16} />
                 เปิดโฟลเดอร์
               </button>
+              {onDownloadAgain && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={onDownloadAgain}
+                >
+                  ดาวน์โหลดอีกครั้ง
+                </button>
+              )}
             </div>
           </div>
         ) : (
