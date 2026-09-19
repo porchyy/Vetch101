@@ -54,6 +54,20 @@ pub fn get_tool_version(cmd: &str, args: &[&str]) -> Option<String> {
     None
 }
 
+pub fn find_bundled_tool(tool_name: &str) -> Option<PathBuf> {
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(exe_dir) = current_exe.parent() {
+            for sub in ["bin", "resources/bin"] {
+                let candidate = exe_dir.join(sub).join(tool_name);
+                if candidate.exists() {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+    None
+}
+
 pub fn detect_ffmpeg_and_ffprobe(app_bin_dir: &Path) -> (Option<String>, Option<String>) {
     // 1. App local bin directory
     let local_ffmpeg = app_bin_dir.join("ffmpeg.exe");
@@ -68,24 +82,10 @@ pub fn detect_ffmpeg_and_ffprobe(app_bin_dir: &Path) -> (Option<String>, Option<
         return (Some(ffmpeg_str), ffprobe_str);
     }
 
-    // 2. Adjacent or bundled with current executable (portable and installed bundles)
-    if let Ok(current_exe) = std::env::current_exe() {
-        if let Some(exe_dir) = current_exe.parent() {
-            for sub in ["bin", "resources/bin"] {
-                let bundled_ffmpeg = exe_dir.join(sub).join("ffmpeg.exe");
-                let bundled_ffprobe = exe_dir.join(sub).join("ffprobe.exe");
-                if bundled_ffmpeg.exists() {
-                    return (
-                        Some(bundled_ffmpeg.to_string_lossy().to_string()),
-                        if bundled_ffprobe.exists() {
-                            Some(bundled_ffprobe.to_string_lossy().to_string())
-                        } else {
-                            None
-                        },
-                    );
-                }
-            }
-        }
+    // 2. Adjacent or bundled with current executable (portable and installed distributions)
+    if let Some(ffmpeg) = find_bundled_tool("ffmpeg.exe") {
+        let ffprobe = find_bundled_tool("ffprobe.exe").map(|p| p.to_string_lossy().to_string());
+        return (Some(ffmpeg.to_string_lossy().to_string()), ffprobe);
     }
 
     // 3. WinGet package paths
@@ -162,18 +162,11 @@ pub fn detect_ytdlp(app_bin_dir: &Path) -> (Option<String>, bool, Option<String>
         return (Some(path_str), false, version);
     }
 
-    // 2. Adjacent or bundled with current executable (portable and installed bundles)
-    if let Ok(current_exe) = std::env::current_exe() {
-        if let Some(exe_dir) = current_exe.parent() {
-            for sub in ["bin", "resources/bin"] {
-                let bundled_ytdlp = exe_dir.join(sub).join("yt-dlp.exe");
-                if bundled_ytdlp.exists() {
-                    let path_str = bundled_ytdlp.to_string_lossy().to_string();
-                    let version = get_tool_version(&path_str, &["--version"]);
-                    return (Some(path_str), false, version);
-                }
-            }
-        }
+    // 2. Adjacent or bundled with current executable (portable and installed distributions)
+    if let Some(bundled_ytdlp) = find_bundled_tool("yt-dlp.exe") {
+        let path_str = bundled_ytdlp.to_string_lossy().to_string();
+        let version = get_tool_version(&path_str, &["--version"]);
+        return (Some(path_str), false, version);
     }
 
     // 3. WinGet package paths

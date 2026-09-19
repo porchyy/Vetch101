@@ -224,6 +224,13 @@ pub fn download_installer(release: &Release) -> Result<StagedInstaller, String> 
     download_installer_with_progress(release, |_, _, _| {})
 }
 
+pub fn calculate_progress_pct(downloaded: u64, target_size: u64) -> u32 {
+    if target_size == 0 {
+        return 0;
+    }
+    ((downloaded as f64 / target_size as f64) * 100.0).clamp(0.0, 99.0) as u32
+}
+
 pub fn download_installer_with_progress<F>(
     release: &Release,
     mut on_progress: F,
@@ -267,6 +274,7 @@ where
         std::env::temp_dir().join(format!("Vetch101-update-{}-{unique}", std::process::id()));
     std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
     let path = directory.join(filename);
+
     let staged = StagedInstaller {
         directory,
         file_path: path.clone(),
@@ -291,7 +299,7 @@ where
             Ok(None) => {
                 if let Ok(meta) = std::fs::metadata(&path) {
                     let current = meta.len();
-                    let pct = ((current as f64 / target_size as f64) * 100.0).clamp(0.0, 99.0) as u32;
+                    let pct = calculate_progress_pct(current, target_size);
                     on_progress(current, size, pct);
                 }
                 std::thread::sleep(std::time::Duration::from_millis(200));
@@ -300,8 +308,8 @@ where
         }
     }
 
-    on_progress(size, size, 100);
     verify_installer(&path, staged.digest.as_deref().unwrap_or(""), staged.size)?;
+    on_progress(size, size, 100);
     Ok(staged)
 }
 
@@ -341,7 +349,7 @@ pub fn launch_installer_and_exit(staged: &StagedInstaller) -> Result<(), String>
             )\r\n\
             \r\n\
             tar -xf \"%ARCHIVE%\" -C \"%TARGET_DIR%\"\r\n\
-            start \"\" \"%TARGET_DIR%\\Vetch101.exe\"\r\n\
+            start \"\" /D \"%TARGET_DIR%\" \"%TARGET_DIR%\\Vetch101.exe\"\r\n\
             del /f /q \"%ARCHIVE%\" 2>nul\r\n\
             (goto) 2>nul & rmdir /s /q \"%~dp0\" 2>nul\r\n",
             pid = pid,
@@ -364,6 +372,16 @@ pub fn launch_installer_and_exit(staged: &StagedInstaller) -> Result<(), String>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_calculate_progress_pct() {
+        assert_eq!(calculate_progress_pct(0, 1000), 0);
+        assert_eq!(calculate_progress_pct(500, 1000), 50);
+        assert_eq!(calculate_progress_pct(990, 1000), 99);
+        assert_eq!(calculate_progress_pct(1000, 1000), 99);
+        assert_eq!(calculate_progress_pct(1200, 1000), 99);
+        assert_eq!(calculate_progress_pct(500, 0), 0);
+    }
 
     #[test]
     fn test_is_newer_version() {
