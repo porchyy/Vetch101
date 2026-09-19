@@ -56,6 +56,14 @@ pub struct VideoMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PhotoDownloadResult {
+    pub total: usize,
+    pub succeeded: usize,
+    pub failed_indices: Vec<u32>,
+    pub saved_files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadProgressPayload {
     pub progress: f32,  // 0.0 - 100.0
     pub speed: String,  // e.g. "8.2 MB/s"

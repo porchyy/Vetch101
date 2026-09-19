@@ -95,10 +95,18 @@ pub fn parse_tiktok_photo_json(json_str: &str, original_url: &str) -> Result<Opt
     }))
 }
 
-/// Checks if a given URL is a TikTok URL.
+/// Checks if a given URL is a legitimate TikTok domain URL.
 pub fn is_tiktok_url(url: &str) -> bool {
-    let lower = url.to_lowercase();
-    lower.contains("tiktok.com/") || lower.contains("tiktokv.com/")
+    if let Ok(parsed) = tauri::Url::parse(url) {
+        if let Some(host) = parsed.host_str() {
+            let h = host.to_lowercase();
+            return h == "tiktok.com"
+                || h.ends_with(".tiktok.com")
+                || h == "tiktokv.com"
+                || h.ends_with(".tiktokv.com");
+        }
+    }
+    false
 }
 
 /// Attempts to fetch TikTok photo post metadata via TikWM API.
@@ -110,7 +118,10 @@ pub fn fetch_tiktok_photo_metadata(url: &str) -> Result<Option<VideoMetadata>, S
         return Ok(None);
     }
 
-    let api_url = format!("https://www.tikwm.com/api/?url={}", url);
+    let mut api_url = tauri::Url::parse("https://www.tikwm.com/api/")
+        .map_err(|e| format!("Invalid base API URL: {}", e))?;
+    api_url.query_pairs_mut().append_pair("url", url);
+    let api_url_str = api_url.to_string();
 
     let mut cmd = Command::new("curl.exe");
     cmd.args([
@@ -122,7 +133,7 @@ pub fn fetch_tiktok_photo_metadata(url: &str) -> Result<Option<VideoMetadata>, S
         "10",
         "--max-time",
         "20",
-        &api_url,
+        &api_url_str,
     ]);
 
     #[cfg(target_os = "windows")]

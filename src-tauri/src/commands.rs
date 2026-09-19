@@ -2,7 +2,7 @@ use crate::engine::detector::{get_binaries, update_ytdlp_tool};
 use crate::engine::downloader::{run_download, DownloadManager};
 use crate::engine::metadata::fetch_video_metadata;
 use crate::engine::updater::{check_github_release, download_installer, launch_installer_and_exit};
-use crate::models::{AppUpdateInfo, DependencyStatus, VideoMetadata};
+use crate::models::{AppUpdateInfo, DependencyStatus, PhotoDownloadResult, VideoMetadata};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, State};
@@ -132,7 +132,7 @@ pub async fn download_photo_post(
     url: String,
     download_dir: String,
     format: String,
-) -> Result<usize, String> {
+) -> Result<PhotoDownloadResult, String> {
     let manager = state.inner().clone();
     crate::engine::photo_downloader::run_photo_download(app, manager, url, download_dir, format).await
 }

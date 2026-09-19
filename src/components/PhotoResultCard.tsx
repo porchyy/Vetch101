@@ -158,7 +158,7 @@ export function PhotoResultCard({
             <div className="completed-info">
               <Check size={20} className="text-success" />
               <div>
-                <strong>ดาวน์โหลดรูปภาพสำเร็จ!</strong>
+                <strong>{progress?.message || "ดาวน์โหลดรูปภาพสำเร็จ!"}</strong>
                 {savedFile && <div className="saved-file-name">{savedFile}</div>}
               </div>
             </div>

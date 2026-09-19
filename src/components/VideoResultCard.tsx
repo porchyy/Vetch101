@@ -221,7 +221,12 @@ export function VideoResultCard({
                 disabled={updatingYtdlp || !selectedQuality || status !== "ready"}
               >
                 <ArrowDown size={18} />
-                ดาวน์โหลดวิดีโอ {selectedQuality?.filesize_approx ? `(${formatBytes(selectedQuality.filesize_approx)})` : ""}
+                {selectedQuality?.ext === "mp3"
+                  ? "ดาวน์โหลดเสียง MP3"
+                  : selectedQuality?.ext === "jpg"
+                  ? "บันทึกภาพปก"
+                  : "ดาวน์โหลดวิดีโอ"}{" "}
+                {selectedQuality?.filesize_approx ? `(${formatBytes(selectedQuality.filesize_approx)})` : ""}
               </button>
               {folder && (
                 <button type="button" className="btn btn-secondary" onClick={onOpenFolder} title="เปิดโฟลเดอร์ปลายทาง">

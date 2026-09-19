@@ -1148,7 +1148,16 @@ input {
 }
 
 .format-btn input[type="radio"] {
-  display: none;
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+.format-btn:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .format-btn.selected {

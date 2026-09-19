@@ -38,6 +38,13 @@ interface DownloadProgressPayload {
   filename?: string;
 }
 
+interface PhotoDownloadResult {
+  total: number;
+  succeeded: number;
+  failed_indices: number[];
+  saved_files: string[];
+}
+
 interface DependencyStatus {
   ytdlp_available: boolean;
   ffmpeg_available: boolean;
@@ -167,22 +174,7 @@ export default function App() {
     };
   }, []);
 
-  // 3. Debounce-inspect when the user types manually into the URL field.
-  //    Paste and drag-drop trigger inspection directly (delay=0) so this
-  //    effect only needs to cover the typing path (delay=800ms).
-  useEffect(() => {
-    if (!url || downloadLock.current || updateLock.current) return;
-    let valid = false;
-    try { parseVideoUrl(url); valid = true; } catch { /* not a valid URL yet */ }
-    if (!valid) return;
 
-    const timer = setTimeout(() => {
-      void handleInspectUrl(url);
-    }, 800);
-    return () => clearTimeout(timer);
-    // handleInspectUrl is stable (defined outside render), url drives the effect.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url]);
 
   // Update yt-dlp binary
   const handleUpdateYtdlp = async () => {
@@ -517,13 +509,20 @@ export default function App() {
     setProgress(null);
     setSavedFile(null);
     try {
-      await invoke("download_photo_post", {
+      const result = await invoke<PhotoDownloadResult>("download_photo_post", {
         url,
         downloadDir: folder,
         format: imageFormat,
       });
       setStatus("completed");
-      setNotice("ดาวน์โหลดรูปภาพเรียบร้อยแล้ว");
+      if (result.failed_indices.length === 0) {
+        setNotice(`บันทึกรูปภาพครบทั้ง ${result.total} รูปเรียบร้อยแล้ว`);
+      } else {
+        setNotice(
+          `ดาวน์โหลดสำเร็จ ${result.succeeded}/${result.total} รูป (รูปที่ ${result.failed_indices.join(", ")} ล้มเหลว)`,
+        );
+      }
+      const firstSaved = result.saved_files[0];
       const item: RecentItem = {
         id: meta.id || String(Date.now()),
         title: meta.title,
@@ -531,7 +530,8 @@ export default function App() {
         platform: detectPlatform(url),
         ext: imageFormat,
         date: Date.now(),
-        filepath: folder,
+        filename: firstSaved || `${meta.title} (${result.succeeded} รูป)`,
+        filepath: firstSaved && folder ? `${folder}\\${firstSaved}` : folder,
       };
       setRecent((prev) => {
         const next = [item, ...prev.filter((x) => x.url !== url)].slice(0, 50);
@@ -692,9 +692,17 @@ export default function App() {
               ref={inputRef}
               type="text"
               className="url-input"
-              placeholder="วางหรือลากลิงก์วิดีโอมาที่หน้าต่างนี้"
+              placeholder="วางหรือลากลิงก์วิดีโอหรือรูปภาพมาที่นี่"
               value={url}
-              onChange={(e) => changeUrl(e.target.value)}
+              onChange={(e) => {
+                const nextVal = e.target.value;
+                changeUrl(nextVal);
+                let valid = false;
+                try { parseVideoUrl(nextVal.trim()); valid = true; } catch {}
+                if (valid) {
+                  scheduleInspect(nextVal.trim(), 800);
+                }
+              }}
               onPaste={handlePaste}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && url.trim() && status !== "downloading" && status !== "checking") {
