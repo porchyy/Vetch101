@@ -1,5 +1,5 @@
 use crate::engine::detector::get_binaries;
-use crate::models::{MediaDetails, QualityOption, VideoDetails, VideoMetadata};
+use crate::models::{MediaDetails, QualityOption, VideoDetails};
 use serde_json::Value;
 use std::path::Path;
 use std::process::Command;
@@ -8,10 +8,6 @@ use std::process::Command;
 use std::os::windows::process::CommandExt;
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-pub fn fetch_video_metadata(url: &str) -> Result<VideoMetadata, String> {
-    fetch_media_details(url).map(Into::into)
-}
 
 pub fn fetch_media_details(url: &str) -> Result<MediaDetails, String> {
     let url = super::validate_url(url)?;

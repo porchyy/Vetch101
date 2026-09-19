@@ -1075,13 +1075,40 @@ input {
   color: var(--text-muted);
 }
 
+/* Photo Selection Controls */
+.photo-selection-wrapper {
+  margin-bottom: 16px;
+}
+
+.photo-selection-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.photo-selection-count strong {
+  color: var(--color-primary);
+}
+
+.photo-selection-btns {
+  display: flex;
+  gap: 6px;
+}
+
+.photo-select-btn {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
 /* Photo strip: horizontal scrollable row of image thumbnails */
 .photo-strip {
   display: flex;
   gap: 8px;
   overflow-x: auto;
   padding-bottom: 8px;
-  margin-bottom: 16px;
   scrollbar-width: thin;
 }
 
@@ -1092,8 +1119,48 @@ input {
   height: 100px;
   border-radius: var(--radius-sm);
   overflow: hidden;
-  border: 1.5px solid var(--border-subtle);
+  border: 2px solid var(--border-subtle);
   background: var(--bg-subtle);
+  transition: all 0.15s ease-in-out;
+  user-select: none;
+}
+
+.photo-strip-item.selected-photo {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.photo-strip-item.unselected-photo {
+  opacity: 0.45;
+  filter: grayscale(0.5);
+  border-color: var(--border-subtle);
+}
+
+.photo-strip-item:hover {
+  opacity: 1;
+  transform: translateY(-1px);
+}
+
+.photo-check-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1.5px solid rgba(255, 255, 255, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease-in-out;
+  z-index: 2;
+}
+
+.photo-check-badge.checked {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #000;
 }
 
 .photo-strip-img {
@@ -1106,22 +1173,24 @@ input {
   position: absolute;
   bottom: 4px;
   left: 4px;
-  background: rgba(0,0,0,0.55);
+  background: rgba(0,0,0,0.65);
   color: #fff;
   font-size: 11px;
   border-radius: 4px;
   padding: 1px 5px;
+  z-index: 2;
 }
 
 .photo-strip-dim {
   position: absolute;
   bottom: 4px;
   right: 4px;
-  background: rgba(0,0,0,0.45);
+  background: rgba(0,0,0,0.55);
   color: #fff;
   font-size: 10px;
   border-radius: 4px;
   padding: 1px 4px;
+  z-index: 2;
 }
 
 /* Format toggle (JPG / PNG) */

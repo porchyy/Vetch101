@@ -54,6 +54,10 @@ export type MediaConfig =
       platform: string;
       imageFormat: ImageFormat;
       onSelectFormat: (fmt: ImageFormat) => void;
+      selectedIndices?: number[];
+      onToggleIndex?: (index: number) => void;
+      onSelectAll?: () => void;
+      onDeselectAll?: () => void;
     };
 
 export interface MediaResultCardProps {
@@ -138,28 +142,71 @@ export function MediaResultCard({
             </div>
           </div>
 
-          {/* Photo strip preview */}
+          {/* Photo strip preview with interactive selection */}
           {media.details.images.length > 0 && (
-            <div className="photo-strip" role="list" aria-label="รูปภาพในโพสต์">
-              {media.details.images.map((img) => (
-                <div key={img.index} className="photo-strip-item" role="listitem">
-                  <img
-                    src={img.preview_url}
-                    alt={`รูปที่ ${img.index}`}
-                    className="photo-strip-img"
-                    referrerPolicy="no-referrer"
-                    onError={(e) => {
-                      e.currentTarget.style.display = "none";
-                    }}
-                  />
-                  <span className="photo-strip-index">{img.index}</span>
-                  {img.width && img.height && (
-                    <span className="photo-strip-dim">
-                      {img.width}×{img.height}
-                    </span>
-                  )}
+            <div className="photo-selection-wrapper">
+              <div className="photo-selection-header">
+                <span className="photo-selection-count">
+                  เลือกแล้ว <strong>{media.selectedIndices ? media.selectedIndices.length : media.details.images.length}</strong> จาก {media.details.images.length} รูป
+                </span>
+                <div className="photo-selection-btns">
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm photo-select-btn"
+                    onClick={media.onSelectAll}
+                    disabled={isDownloading || (media.selectedIndices ? media.selectedIndices.length === media.details.images.length : true)}
+                  >
+                    เลือกทั้งหมด
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm photo-select-btn"
+                    onClick={media.onDeselectAll}
+                    disabled={isDownloading || (media.selectedIndices ? media.selectedIndices.length === 0 : false)}
+                  >
+                    ล้างการเลือก
+                  </button>
                 </div>
-              ))}
+              </div>
+
+              <div className="photo-strip" role="list" aria-label="รูปภาพในโพสต์">
+                {media.details.images.map((img, idx) => {
+                  const isSelected = media.selectedIndices ? media.selectedIndices.includes(idx) : true;
+                  return (
+                    <div
+                      key={img.index}
+                      className={`photo-strip-item ${isSelected ? "selected-photo" : "unselected-photo"}`}
+                      role="listitem"
+                      onClick={() => {
+                        if (!isDownloading && media.onToggleIndex) {
+                          media.onToggleIndex(idx);
+                        }
+                      }}
+                      style={{ cursor: isDownloading ? "default" : "pointer" }}
+                      title={`คลิกเพื่อ${isSelected ? "ยกเลิก" : "เลือก"}รูปที่ ${img.index}`}
+                    >
+                      <img
+                        src={img.preview_url}
+                        alt={`รูปที่ ${img.index}`}
+                        className="photo-strip-img"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          e.currentTarget.style.display = "none";
+                        }}
+                      />
+                      <div className={`photo-check-badge ${isSelected ? "checked" : ""}`}>
+                        {isSelected ? <Check size={12} /> : null}
+                      </div>
+                      <span className="photo-strip-index">{img.index}</span>
+                      {img.width && img.height && (
+                        <span className="photo-strip-dim">
+                          {img.width}×{img.height}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </>
@@ -426,18 +473,26 @@ export function MediaResultCard({
           </div>
         ) : (
           <div className="download-actions">
-            <button
-              type="button"
-              className="btn btn-primary btn-lg download-btn"
-              onClick={actions.onStart}
-              disabled={session.isBusy || session.status !== "ready"}
-            >
-              <ArrowDown size={18} />
-              ดาวน์โหลดรูป{" "}
-              {media.details.images.length > 0
-                ? `(${media.details.images.length} ใบ · ${media.imageFormat.toUpperCase()})`
-                : `(${media.imageFormat.toUpperCase()})`}
-            </button>
+            {(() => {
+              const selectedCount = media.selectedIndices
+                ? media.selectedIndices.length
+                : media.details.images.length;
+              return (
+                <button
+                  type="button"
+                  className="btn btn-primary btn-lg download-btn"
+                  onClick={actions.onStart}
+                  disabled={session.isBusy || session.status !== "ready" || selectedCount === 0}
+                >
+                  <ArrowDown size={18} />
+                  {selectedCount === 0
+                    ? "กรุณาเลือกรูปภาพอย่างน้อย 1 รูป"
+                    : selectedCount === media.details.images.length
+                    ? `ดาวน์โหลดรูปทั้งหมด (${selectedCount} ใบ · ${media.imageFormat.toUpperCase()})`
+                    : `ดาวน์โหลดรูปที่เลือก (${selectedCount} จาก ${media.details.images.length} ใบ · ${media.imageFormat.toUpperCase()})`}
+                </button>
+              );
+            })()}
             {folder.path && (
               <button
                 type="button"

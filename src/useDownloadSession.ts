@@ -27,6 +27,7 @@ export interface DownloadSessionState {
   progress: DownloadProgressPayload | null;
   savedFile: string | null;
   imageFormat: ImageFormat;
+  selectedPhotoIndices: number[];
   revision: number;
 }
 
@@ -42,6 +43,7 @@ export const initialSessionState: DownloadSessionState = {
   progress: null,
   savedFile: null,
   imageFormat: "jpg",
+  selectedPhotoIndices: [],
   revision: 0,
 };
 
@@ -52,6 +54,9 @@ export type SessionAction =
   | { type: "inspect_failure"; revision: number; error: AppError }
   | { type: "select_quality"; id: string }
   | { type: "select_format"; format: ImageFormat }
+  | { type: "toggle_photo_index"; index: number }
+  | { type: "select_all_photos" }
+  | { type: "deselect_all_photos" }
   | { type: "start_download" }
   | { type: "download_progress"; payload: DownloadProgressPayload }
   | { type: "download_success"; notice: string; savedFile?: string }
@@ -72,6 +77,7 @@ export function sessionReducer(
         url: action.url,
         meta: null,
         selectedQualityId: "",
+        selectedPhotoIndices: [],
         status: "idle",
         error: null,
         notice: "",
@@ -86,6 +92,7 @@ export function sessionReducer(
         url: action.url,
         meta: null,
         selectedQualityId: "",
+        selectedPhotoIndices: [],
         status: "checking",
         error: null,
         notice: "",
@@ -99,13 +106,18 @@ export function sessionReducer(
         return state;
       }
       let initialQuality = "";
+      let initialPhotoIndices: number[] = [];
       if ("qualities" in action.meta && Array.isArray(action.meta.qualities) && action.meta.qualities.length > 0) {
         initialQuality = action.meta.qualities[0]?.id ?? "";
+      }
+      if (action.meta.type === "photo_album") {
+        initialPhotoIndices = action.meta.images.map((_, i) => i);
       }
       return {
         ...state,
         meta: action.meta,
         selectedQualityId: initialQuality,
+        selectedPhotoIndices: initialPhotoIndices,
         status: "ready",
         error: null,
       };
@@ -131,6 +143,31 @@ export function sessionReducer(
       return {
         ...state,
         imageFormat: action.format,
+      };
+
+    case "toggle_photo_index": {
+      const exists = state.selectedPhotoIndices.includes(action.index);
+      const updated = exists
+        ? state.selectedPhotoIndices.filter((i) => i !== action.index)
+        : [...state.selectedPhotoIndices, action.index].sort((a, b) => a - b);
+      return {
+        ...state,
+        selectedPhotoIndices: updated,
+      };
+    }
+
+    case "select_all_photos": {
+      if (!state.meta || state.meta.type !== "photo_album") return state;
+      return {
+        ...state,
+        selectedPhotoIndices: state.meta.images.map((_, i) => i),
+      };
+    }
+
+    case "deselect_all_photos":
+      return {
+        ...state,
+        selectedPhotoIndices: [],
       };
 
     case "start_download":
@@ -405,6 +442,14 @@ export function useDownloadSession({
       return;
     }
 
+    if (state.selectedPhotoIndices.length === 0) {
+      dispatch({
+        type: "set_error",
+        error: { summary: "กรุณาเลือกรูปภาพอย่างน้อย 1 รูปสำหรับดาวน์โหลด" },
+      });
+      return;
+    }
+
     downloadLock.current = true;
     dispatch({ type: "start_download" });
 
@@ -413,6 +458,7 @@ export function useDownloadSession({
         url: state.url,
         downloadDir: folder,
         format: state.imageFormat,
+        indices: state.selectedPhotoIndices,
       });
 
       if (outcome.kind === "photo_album") {
@@ -462,7 +508,20 @@ export function useDownloadSession({
     } finally {
       downloadLock.current = false;
     }
-  }, [state.meta, state.status, state.url, state.imageFormat, folder, isBlocked]);
+  }, [state.meta, state.status, state.url, state.imageFormat, state.selectedPhotoIndices, folder, isBlocked]);
+
+  // 6.1 Photo selection actions
+  const togglePhotoIndex = useCallback((index: number) => {
+    dispatch({ type: "toggle_photo_index", index });
+  }, []);
+
+  const selectAllPhotos = useCallback(() => {
+    dispatch({ type: "select_all_photos" });
+  }, []);
+
+  const deselectAllPhotos = useCallback(() => {
+    dispatch({ type: "deselect_all_photos" });
+  }, []);
 
   // 7. Cancel running download
   const cancelDownload = useCallback(async () => {
@@ -609,6 +668,10 @@ export function useDownloadSession({
         platform: detectPlatform(state.url),
         imageFormat: state.imageFormat,
         onSelectFormat: setImageFormat,
+        selectedIndices: state.selectedPhotoIndices,
+        onToggleIndex: togglePhotoIndex,
+        onSelectAll: selectAllPhotos,
+        onDeselectAll: deselectAllPhotos,
       }
     : {
         type: "video",
@@ -642,6 +705,7 @@ export function useDownloadSession({
     progress: state.progress,
     savedFile: state.savedFile,
     imageFormat: state.imageFormat,
+    selectedPhotoIndices: state.selectedPhotoIndices,
     revision: state.revision,
     recent,
 
@@ -665,6 +729,9 @@ export function useDownloadSession({
     resetStatus,
     setSelectedQualityId,
     setImageFormat,
+    togglePhotoIndex,
+    selectAllPhotos,
+    deselectAllPhotos,
     handlePaste,
     handlePasteClipboard,
     handleDrop,

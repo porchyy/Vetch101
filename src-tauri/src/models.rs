@@ -1,15 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-/// Discriminates between a video post and a photo/image post.
-/// Defaults to `Video` for backward compatibility.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum PostType {
-    #[default]
-    Video,
-    PhotoPost,
-}
-
 /// A single image in a photo post / album, in display order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PhotoImage {
@@ -101,77 +91,6 @@ impl MediaDetails {
         match self {
             MediaDetails::Video(v) => &v.thumbnail,
             MediaDetails::PhotoAlbum(p) => &p.cover_url,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VideoMetadata {
-    pub id: String,
-    pub title: String,
-    pub thumbnail: String,
-    pub duration: Option<f64>,
-    pub channel: Option<String>,
-    #[serde(default)]
-    pub filesize_approx: Option<u64>,
-    pub qualities: Vec<QualityOption>,
-    /// Whether this post is a video or a photo/album post.
-    #[serde(default)]
-    pub post_type: PostType,
-    /// Ordered list of images for photo posts. Empty for video posts.
-    #[serde(default)]
-    pub images: Vec<PhotoImage>,
-}
-
-impl From<MediaDetails> for VideoMetadata {
-    fn from(details: MediaDetails) -> Self {
-        match details {
-            MediaDetails::Video(v) => VideoMetadata {
-                id: v.id,
-                title: v.title,
-                thumbnail: v.thumbnail,
-                duration: v.duration,
-                channel: v.channel,
-                filesize_approx: v.filesize_approx,
-                qualities: v.qualities,
-                post_type: PostType::Video,
-                images: vec![],
-            },
-            MediaDetails::PhotoAlbum(p) => VideoMetadata {
-                id: p.id,
-                title: p.title,
-                thumbnail: p.cover_url,
-                duration: None,
-                channel: p.channel,
-                filesize_approx: None,
-                qualities: vec![],
-                post_type: PostType::PhotoPost,
-                images: p.images,
-            },
-        }
-    }
-}
-
-impl From<VideoMetadata> for MediaDetails {
-    fn from(meta: VideoMetadata) -> Self {
-        if meta.post_type == PostType::PhotoPost || !meta.images.is_empty() {
-            MediaDetails::PhotoAlbum(PhotoAlbumDetails {
-                id: meta.id,
-                title: meta.title,
-                cover_url: meta.thumbnail,
-                channel: meta.channel,
-                images: meta.images,
-            })
-        } else {
-            MediaDetails::Video(VideoDetails {
-                id: meta.id,
-                title: meta.title,
-                thumbnail: meta.thumbnail,
-                duration: meta.duration,
-                channel: meta.channel,
-                filesize_approx: meta.filesize_approx,
-                qualities: meta.qualities,
-            })
         }
     }
 }
@@ -321,7 +240,7 @@ mod tests {
     }
 
     #[test]
-    fn test_roundtrip_conversion_between_metadata_and_details() {
+    fn test_media_details_accessors() {
         let original_album = PhotoAlbumDetails {
             id: "album789".to_string(),
             title: "My Photos".to_string(),
@@ -336,13 +255,11 @@ mod tests {
             }],
         };
 
-        let details = MediaDetails::PhotoAlbum(original_album.clone());
-        let meta: VideoMetadata = details.clone().into();
-        assert_eq!(meta.post_type, PostType::PhotoPost);
-        assert_eq!(meta.images.len(), 1);
-
-        let roundtrip: MediaDetails = meta.into();
-        assert_eq!(roundtrip, details);
+        let details = MediaDetails::PhotoAlbum(original_album);
+        assert_eq!(details.id(), "album789");
+        assert_eq!(details.title(), "My Photos");
+        assert_eq!(details.channel(), Some("Artist"));
+        assert_eq!(details.thumbnail_or_cover(), "https://example.com/thumb.jpg");
     }
 
     #[test]

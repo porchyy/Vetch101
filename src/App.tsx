@@ -170,16 +170,41 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [handleCheckAppUpdate, checkingDeps, deps]);
 
+  const isUpdateInstalled = "isInstalled" in updaterState ? Boolean(updaterState.isInstalled) : false;
+
   useEffect(() => {
-    if (updaterState.status !== "available" || !updaterState.isInstalled || appUpdateLock.current || updateLock.current || updatingYtdlp || session.isDownloading || session.isInspecting || session.downloadLockActive) return;
+    if (
+      updaterState.status !== "available" ||
+      !isUpdateInstalled ||
+      appUpdateLock.current ||
+      updateLock.current ||
+      updatingYtdlp ||
+      session.isDownloading ||
+      session.isInspecting ||
+      session.downloadLockActive
+    ) {
+      return;
+    }
     appUpdateLock.current = true;
     setUpdaterState(UpdaterAction.startDownload);
-    void invoke("stage_app_update").then(() => {
-      setUpdaterState(UpdaterAction.ready);
-    }).catch((e: unknown) => {
-      setUpdaterState((state) => UpdaterAction.error(state, String(e)));
-    }).finally(() => { appUpdateLock.current = false; });
-  }, [updaterState, updatingYtdlp, session.isDownloading, session.isInspecting, session.downloadLockActive]);
+    void invoke("stage_app_update")
+      .then(() => {
+        setUpdaterState(UpdaterAction.ready);
+      })
+      .catch((e: unknown) => {
+        setUpdaterState((state) => UpdaterAction.error(state, String(e)));
+      })
+      .finally(() => {
+        appUpdateLock.current = false;
+      });
+  }, [
+    updaterState.status,
+    isUpdateInstalled,
+    updatingYtdlp,
+    session.isDownloading,
+    session.isInspecting,
+    session.downloadLockActive,
+  ]);
 
   const handleStartAppUpdate = async () => {
     const check = canStartUpdate({

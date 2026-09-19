@@ -155,18 +155,38 @@ pub async fn download_photo_post(
     url: String,
     download_dir: String,
     format: String,
+    indices: Option<Vec<usize>>,
 ) -> Result<DownloadOutcome, String> {
     let pipeline = crate::engine::pipeline::MediaPipeline::new(state.inner().clone());
-    pipeline
+    let outcome = pipeline
         .execute(
-            app,
+            app.clone(),
             crate::engine::pipeline::DownloadRequest::PhotoAlbum {
                 url,
                 format,
                 download_dir,
+                indices,
             },
         )
-        .await
+        .await?;
+
+    let notification_body = match &outcome {
+        DownloadOutcome::PhotoAlbum { succeeded, .. } => {
+            format!("บันทึกรูปภาพ {} รูปเรียบร้อยแล้ว", succeeded)
+        }
+        _ => "บันทึกรูปภาพเรียบร้อยแล้ว".to_string(),
+    };
+
+    if let Err(error) = app
+        .notification()
+        .builder()
+        .title("Vetch101 — ดาวน์โหลดรูปภาพเสร็จแล้ว")
+        .body(notification_body)
+        .show()
+    {
+        eprintln!("Could not show photo download notification: {error}");
+    }
+    Ok(outcome)
 }
 
 #[tauri::command]

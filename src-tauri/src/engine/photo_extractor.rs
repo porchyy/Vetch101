@@ -1,4 +1,4 @@
-use crate::models::{MediaDetails, PhotoAlbumDetails, PhotoImage, PostType, VideoMetadata};
+use crate::models::{PhotoAlbumDetails, PhotoImage};
 use serde_json::Value;
 use std::process::Command;
 
@@ -95,12 +95,6 @@ pub fn parse_tiktok_photo_details(json_str: &str, original_url: &str) -> Result<
     }))
 }
 
-/// Pure parser that extracts photo post metadata for backward-compatibility.
-pub fn parse_tiktok_photo_json(json_str: &str, original_url: &str) -> Result<Option<VideoMetadata>, String> {
-    parse_tiktok_photo_details(json_str, original_url)
-        .map(|opt| opt.map(|album| MediaDetails::PhotoAlbum(album).into()))
-}
-
 /// Checks if a given URL is a legitimate TikTok domain URL.
 pub fn is_tiktok_url(url: &str) -> bool {
     if let Ok(parsed) = tauri::Url::parse(url) {
@@ -157,12 +151,6 @@ pub fn fetch_tiktok_photo_details(url: &str) -> Result<Option<PhotoAlbumDetails>
     parse_tiktok_photo_details(&stdout_str, url)
 }
 
-/// Backward-compatible fetcher returning VideoMetadata
-pub fn fetch_tiktok_photo_metadata(url: &str) -> Result<Option<VideoMetadata>, String> {
-    fetch_tiktok_photo_details(url)
-        .map(|opt| opt.map(|album| MediaDetails::PhotoAlbum(album).into()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,18 +185,17 @@ mod tests {
             }
         }"#;
 
-        let result = parse_tiktok_photo_json(json, "https://tiktok.com/@alice/photo/7338943586698054958").unwrap();
+        let result = parse_tiktok_photo_details(json, "https://tiktok.com/@alice/photo/7338943586698054958").unwrap();
         assert!(result.is_some());
-        let meta = result.unwrap();
-        assert_eq!(meta.post_type, PostType::PhotoPost);
-        assert_eq!(meta.id, "7338943586698054958");
-        assert_eq!(meta.title, "Summer vacation photo dump");
-        assert_eq!(meta.channel, Some("Alice".to_string()));
-        assert_eq!(meta.images.len(), 3);
-        assert_eq!(meta.images[0].index, 1);
-        assert_eq!(meta.images[0].preview_url, "https://cdn.example.com/img1.jpg");
-        assert_eq!(meta.images[2].index, 3);
-        assert_eq!(meta.images[2].download_url, "https://cdn.example.com/img3.jpg");
+        let album = result.unwrap();
+        assert_eq!(album.id, "7338943586698054958");
+        assert_eq!(album.title, "Summer vacation photo dump");
+        assert_eq!(album.channel, Some("Alice".to_string()));
+        assert_eq!(album.images.len(), 3);
+        assert_eq!(album.images[0].index, 1);
+        assert_eq!(album.images[0].preview_url, "https://cdn.example.com/img1.jpg");
+        assert_eq!(album.images[2].index, 3);
+        assert_eq!(album.images[2].download_url, "https://cdn.example.com/img3.jpg");
     }
 
     #[test]
@@ -224,7 +211,7 @@ mod tests {
             }
         }"#;
 
-        let result = parse_tiktok_photo_json(json, "https://tiktok.com/@cat/video/7106594312292453675").unwrap();
+        let result = parse_tiktok_photo_details(json, "https://tiktok.com/@cat/video/7106594312292453675").unwrap();
         assert!(result.is_none(), "Video post should return None so caller falls through to yt-dlp");
     }
 
@@ -235,7 +222,7 @@ mod tests {
             "msg": "Post not found or private"
         }"#;
 
-        let result = parse_tiktok_photo_json(json, "https://tiktok.com/@private/photo/123");
+        let result = parse_tiktok_photo_details(json, "https://tiktok.com/@private/photo/123");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Post not found or private"));
     }
@@ -256,7 +243,7 @@ mod tests {
             }
         }"#;
 
-        let meta = parse_tiktok_photo_json(json, "https://tiktok.com/@bob/photo/12345").unwrap().unwrap();
-        assert_eq!(meta.title, "โพสต์รูปภาพของ Bob");
+        let album = parse_tiktok_photo_details(json, "https://tiktok.com/@bob/photo/12345").unwrap().unwrap();
+        assert_eq!(album.title, "โพสต์รูปภาพของ Bob");
     }
 }

@@ -305,3 +305,46 @@ test("overlapping inspections accept only the newest response", async () => {
   assert.equal(state.selectedQualityId, "");
   assert.equal(state.status, "ready");
 });
+
+test("photo album inspection initializes all photo indices as selected", () => {
+  const photoMeta = {
+    type: "photo_album",
+    id: "album_123",
+    title: "Trip",
+    images: [
+      { url: "https://img1.jpg", width: 800, height: 600 },
+      { url: "https://img2.jpg", width: 800, height: 600 },
+      { url: "https://img3.jpg", width: 800, height: 600 },
+    ],
+  };
+
+  const checking = sessionReducer(initialSessionState, {
+    type: "start_inspect",
+    url: "https://tiktok.com/@u/photo/123",
+    revision: 1,
+  });
+
+  const ready = sessionReducer(checking, {
+    type: "inspect_success",
+    revision: 1,
+    meta: photoMeta,
+  });
+
+  assert.deepEqual(ready.selectedPhotoIndices, [0, 1, 2]);
+
+  // Toggle photo index
+  const toggledOff = sessionReducer(ready, { type: "toggle_photo_index", index: 1 });
+  assert.deepEqual(toggledOff.selectedPhotoIndices, [0, 2]);
+
+  const toggledOn = sessionReducer(toggledOff, { type: "toggle_photo_index", index: 1 });
+  assert.deepEqual(toggledOn.selectedPhotoIndices, [0, 1, 2]);
+
+  // Deselect all
+  const deselected = sessionReducer(ready, { type: "deselect_all_photos" });
+  assert.deepEqual(deselected.selectedPhotoIndices, []);
+
+  // Select all
+  const selectedAll = sessionReducer(deselected, { type: "select_all_photos" });
+  assert.deepEqual(selectedAll.selectedPhotoIndices, [0, 1, 2]);
+});
+

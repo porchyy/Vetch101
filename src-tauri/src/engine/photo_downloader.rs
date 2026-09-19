@@ -1,6 +1,6 @@
 use crate::engine::detector::get_binaries;
 use crate::engine::downloader::{DownloadManager, Operation};
-use crate::engine::photo_extractor::fetch_tiktok_photo_metadata;
+use crate::engine::photo_extractor::fetch_tiktok_photo_details;
 use crate::engine::validate_url;
 use crate::models::{DownloadOutcome, DownloadProgressPayload};
 use std::path::{Path, PathBuf};
@@ -225,9 +225,10 @@ pub async fn run_photo_download(
     url: String,
     download_dir: String,
     format: String,
+    indices: Option<Vec<usize>>,
 ) -> Result<DownloadOutcome, String> {
     let job = manager.begin()?;
-    run_photo_download_with_job(app, manager, job, url, download_dir, format).await
+    run_photo_download_with_job(app, manager, job, url, download_dir, format, indices).await
 }
 
 pub async fn run_photo_download_with_job(
@@ -237,6 +238,7 @@ pub async fn run_photo_download_with_job(
     url: String,
     download_dir: String,
     format: String,
+    indices: Option<Vec<usize>>,
 ) -> Result<DownloadOutcome, String> {
     let clean_url = validate_url(&url)?;
     let target_dir = PathBuf::from(&download_dir);
@@ -263,14 +265,29 @@ pub async fn run_photo_download_with_job(
         },
     );
 
-    let photo_meta = fetch_tiktok_photo_metadata(&clean_url)?
+    let photo_meta = fetch_tiktok_photo_details(&clean_url)?
         .ok_or("ลิงก์นี้ไม่ใช่โพสต์รูปภาพ TikTok".to_string())?;
 
     if photo_meta.images.is_empty() {
         return Err("ไม่พบรูปภาพในโพสต์นี้".into());
     }
 
-    let total = photo_meta.images.len();
+    let target_images: Vec<(usize, &crate::models::PhotoImage)> = if let Some(ref selected) = indices {
+        photo_meta
+            .images
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| selected.contains(i))
+            .collect()
+    } else {
+        photo_meta.images.iter().enumerate().collect()
+    };
+
+    if target_images.is_empty() {
+        return Err("ไม่พบรูปภาพที่เลือก หรือไม่ได้เลือกรูปภาพใดๆ".into());
+    }
+
+    let total = target_images.len();
     let safe_title = sanitize_filename(&photo_meta.title);
     let target_ext = if format.to_lowercase() == "png" { "png" } else { "jpg" };
 
@@ -287,11 +304,11 @@ pub async fn run_photo_download_with_job(
     let mut saved_files = Vec::new();
     let mut last_saved_filename = None;
 
-    for (i, img) in photo_meta.images.iter().enumerate() {
+    for (step_idx, &(orig_idx, img)) in target_images.iter().enumerate() {
         job.check_cancelled()?;
 
-        let current_num = (i + 1) as u32;
-        let progress_pct = (i as f32 / total as f32) * 100.0;
+        let current_num = (step_idx + 1) as u32;
+        let progress_pct = (step_idx as f32 / total as f32) * 100.0;
 
         let _ = app.emit(
             "download-progress",
@@ -305,7 +322,7 @@ pub async fn run_photo_download_with_job(
             },
         );
 
-        let temp_file = temp_dir_path.join(format!("temp_img_{}.tmp", current_num));
+        let temp_file = temp_dir_path.join(format!("temp_img_{}.tmp", orig_idx + 1));
         let dest_file = generate_unique_filename(&target_dir, &safe_title, img.index, target_ext);
 
         let mut image_ok = false;
