@@ -141,7 +141,7 @@ pub fn parse_stdout_line(line: &str) -> Option<DownloadProgressPayload> {
             speed: "-".to_string(),
             eta: "-".to_string(),
             status: "merging".to_string(),
-            message: "กำลังแปลงเป็นไฟล์เสียง MP3...".to_string(),
+            message: "กำลังแปลงเป็นไฟล์เสียง...".to_string(),
             filename: None,
         });
     }

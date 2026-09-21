@@ -620,7 +620,7 @@ export default function App() {
               {session.recent.map((item) => (
                 <div key={`${item.url}-${item.date}`} className="history-item">
                   <div className="history-icon">
-                    {item.ext === "mp3" ? (
+                    {item.ext === "mp3" || item.ext === "wav" ? (
                       <FileAudio size={18} />
                     ) : item.ext === "jpg" || item.ext === "png" ? (
                       <ImageIcon size={18} />

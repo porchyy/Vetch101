@@ -290,13 +290,20 @@ pub fn determine_qualities(v: &Value, has_ffmpeg: bool) -> Vec<QualityOption> {
             });
         }
 
-        // Audio option (always MP3 if FFmpeg is available)
+        // Audio conversion requires FFmpeg.
         qualities.push(QualityOption {
             id: "audio".into(),
             label: "เสียงเท่านั้น (MP3)".into(),
             ext: "mp3".into(),
             format_spec: "bestaudio/best".into(),
             filesize_approx: estimate_filesize(formats, duration, None, true),
+        });
+        qualities.push(QualityOption {
+            id: "audio-wav".into(),
+            label: "เสียงเท่านั้น (WAV)".into(),
+            ext: "wav".into(),
+            format_spec: "audio-wav".into(),
+            filesize_approx: None,
         });
     } else {
         // Without FFmpeg, can only download pre-merged progressive MP4
@@ -325,6 +332,18 @@ pub fn determine_qualities(v: &Value, has_ffmpeg: bool) -> Vec<QualityOption> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn audio_download_choices_require_ffmpeg_and_offer_mp3_and_wav() {
+        let media = json!({"formats": []});
+        let choices = determine_qualities(&media, true);
+        for (ext, preset) in [("mp3", "bestaudio/best"), ("wav", "audio-wav")] {
+            let choice = choices.iter().find(|q| q.ext == ext).expect("audio choice");
+            assert_eq!(choice.format_spec, preset);
+            assert!(crate::engine::downloader::is_valid_format_spec(&choice.format_spec));
+        }
+        assert!(!determine_qualities(&media, false).iter().any(|q| q.ext == "mp3" || q.ext == "wav"));
+    }
 
     #[test]
     fn test_tiktok_vertical_resolution_does_not_overestimate_and_has_fallbacks() {

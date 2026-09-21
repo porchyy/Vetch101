@@ -121,6 +121,7 @@ pub fn is_valid_format_spec(format_spec: &str) -> bool {
             // Universal & audio presets
             | "bestvideo+bestaudio/best"
             | "bestaudio/best"
+            | "audio-wav"
             | "best[ext=mp4]"
             | "best[ext=mp4]/best"
             | "thumbnail"
@@ -159,8 +160,13 @@ pub async fn run_download_with_job(
     job.check_cancelled()?;
 
     let ytdlp = binaries.ytdlp_path.ok_or("ไม่พบ yt-dlp ในระบบ")?;
-    if format_spec == "bestaudio/best" && binaries.ffmpeg_path.is_none() {
-        return Err("ต้องมี FFmpeg เพื่อแปลงเป็นไฟล์ MP3".into());
+    let audio_format = match format_spec.as_str() {
+        "bestaudio/best" => Some("mp3"),
+        "audio-wav" => Some("wav"),
+        _ => None,
+    };
+    if audio_format.is_some() && binaries.ffmpeg_path.is_none() {
+        return Err("ต้องมี FFmpeg เพื่อแปลงเป็นไฟล์เสียง".into());
     }
 
     let dest_path = PathBuf::from(&download_dir);
@@ -206,14 +212,17 @@ pub async fn run_download_with_job(
     if format_spec == "thumbnail" {
         cmd.args(["--write-thumbnail", "--skip-download", "--convert-thumbnails", "jpg"]);
     } else {
-        cmd.args(["-f", &format_spec]);
+        cmd.args(["-f", if audio_format.is_some() { "bestaudio/best" } else { &format_spec }]);
     }
 
     cmd.arg("-o");
     cmd.arg(template);
 
-    if format_spec == "bestaudio/best" {
-        cmd.args(["-x", "--audio-format", "mp3", "--embed-thumbnail", "--add-metadata"]);
+    if let Some(audio_format) = audio_format {
+        cmd.args(["-x", "--audio-format", audio_format, "--add-metadata"]);
+        if audio_format == "mp3" {
+            cmd.arg("--embed-thumbnail");
+        }
     } else if binaries.ffmpeg_path.is_some() && format_spec != "thumbnail" {
         cmd.args(["--merge-output-format", "mp4", "--remux-video", "mp4"]);
     }

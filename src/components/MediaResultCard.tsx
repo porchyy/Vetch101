@@ -314,11 +314,11 @@ export function MediaResultCard({
             {/* Recommended video quality */}
             {(() => {
               const videoQualities = media.details.qualities.filter(
-                (q) => q.id !== "audio" && q.id !== "thumbnail",
+                (q) => q.ext === "mp4",
               );
-              const audioQuality = media.details.qualities.find((q) => q.id === "audio");
+              const audioQualities = media.details.qualities.filter((q) => q.ext === "mp3" || q.ext === "wav");
               const thumbnailQuality = media.details.qualities.find((q) => q.id === "thumbnail");
-              const extraQualities = [...videoQualities.slice(1), audioQuality, thumbnailQuality].filter(
+              const extraQualities = [...videoQualities.slice(1), ...audioQualities, thumbnailQuality].filter(
                 Boolean,
               ) as QualityOption[];
               const selectedQuality = media.details.qualities.find(
@@ -378,8 +378,8 @@ export function MediaResultCard({
                       disabled={session.isBusy || !selectedQuality || session.status !== "ready"}
                     >
                       <ArrowDown size={18} />
-                      {selectedQuality?.ext === "mp3"
-                        ? "ดาวน์โหลดเสียง MP3"
+                      {selectedQuality?.ext === "mp3" || selectedQuality?.ext === "wav"
+                        ? `ดาวน์โหลดเสียง ${selectedQuality.ext.toUpperCase()}`
                         : selectedQuality?.ext === "jpg"
                           ? "บันทึกภาพปก"
                           : "ดาวน์โหลดวิดีโอ"}{" "}
@@ -416,7 +416,7 @@ export function MediaResultCard({
                         <div className="quality-grid">
                           {extraQualities.map((q) => {
                             const isSelected = media.selectedQualityId === q.id;
-                            const isAudio = q.ext === "mp3";
+                            const isAudio = q.ext === "mp3" || q.ext === "wav";
                             const isImage = q.ext === "jpg";
                             return (
                               <label
