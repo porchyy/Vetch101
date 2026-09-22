@@ -1,6 +1,6 @@
 [package]
 name = "vetch101"
-version = "0.2.1"
+version = "0.2.2"
 description = "Vetch101 Video Downloader"
 authors = ["porchyy"]
 edition = "2021"
