@@ -38,3 +38,9 @@
   - `Success`: Cat happily celebrating completion with stars or hearts.
   - `Error`: Cat dizzy or sweating to communicate an issue playfully.
 - **Mascot Toggle**: User control allowing toggling companion visibility without impeding media operations.
+
+## Browser Session Handoff & Resilient Ingestion
+- **Browser Session Handoff**: The practice of importing authenticated session state and Cloudflare-cleared cookies from an installed web browser into the download engine.
+- **Browser Target**: The specific installed web browser (Chrome, Edge, Brave, Firefox) selected as the source for session cookies.
+- **Direct Stream Ingestion**: Ingesting raw HLS (`.m3u8`) or DASH (`.mpd`) streaming manifests without generic page metadata scraping, providing automatic timestamp-based naming fallbacks.
+- **Anti-Bot Fallback**: User interface action offering one-click retry using browser session handoff when media inspection or download encounters HTTP 403 or anti-bot challenge errors.

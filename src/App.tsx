@@ -24,6 +24,8 @@ import {
   Sun,
   Trash2,
   X,
+  Globe,
+  RotateCcw,
 } from "lucide-react";
 import { formatBytes } from "./history.ts";
 import { UpdateBanner } from "./components/UpdateBanner";
@@ -43,6 +45,12 @@ import {
   saveMascotVisibility,
   toggleMascotVisibility,
 } from "./mascot-state.ts";
+import {
+  loadBrowserSessionConfig,
+  saveBrowserSessionConfig,
+  type BrowserTarget,
+  isAntiBotChallengeError,
+} from "./browser-session.ts";
 import { createUpdaterState, UpdaterAction, canStartUpdate, type UpdaterState } from "./updater-state";
 import { useDownloadSession } from "./useDownloadSession";
 import type { DependencyStatus } from "./models.ts";
@@ -97,12 +105,32 @@ export default function App() {
     });
   };
 
+  // Browser Session Handoff State
+  const [browserSession, setBrowserSession] = useState(() => loadBrowserSessionConfig());
+
+  const handleToggleBrowserSession = () => {
+    setBrowserSession((prev) => {
+      const next = { ...prev, enabled: !prev.enabled };
+      saveBrowserSessionConfig(next);
+      return next;
+    });
+  };
+
+  const handleChangeBrowserTarget = (target: BrowserTarget) => {
+    setBrowserSession((prev) => {
+      const next = { ...prev, target };
+      saveBrowserSessionConfig(next);
+      return next;
+    });
+  };
+
   const [recentSuccess, setRecentSuccess] = useState(false);
 
   const session = useDownloadSession({
     folder,
     isBlocked: updatingYtdlp || updateLock.current || updaterState.status === "applying",
     inputRef,
+    browser: browserSession.enabled ? browserSession.target : null,
   });
 
   useEffect(() => {
@@ -544,6 +572,45 @@ export default function App() {
             <span className="hint-tag">Instagram</span>
             <span className="hint-tag">X</span>
             <span className="hint-tag">SoundCloud</span>
+            <span className="hint-tag">HLS/m3u8</span>
+          </div>
+
+          {/* Browser Session Handoff Controls */}
+          <div className="browser-session-bar" role="region" aria-label="การตั้งค่า Cookies จากเบราว์เซอร์">
+            <label className="browser-session-toggle">
+              <input
+                type="checkbox"
+                checked={browserSession.enabled}
+                onChange={handleToggleBrowserSession}
+                disabled={session.isDownloading || session.isInspecting}
+              />
+              <span className="browser-toggle-label">
+                <Globe size={14} />
+                ใช้ Cookies จากเบราว์เซอร์
+              </span>
+            </label>
+
+            {browserSession.enabled && (
+              <div className="browser-target-selector">
+                <span className="browser-target-prefix">จาก:</span>
+                <select
+                  value={browserSession.target}
+                  onChange={(e) => handleChangeBrowserTarget(e.target.value as BrowserTarget)}
+                  disabled={session.isDownloading || session.isInspecting}
+                  className="browser-select"
+                  aria-label="เลือกเบราว์เซอร์เป้าหมาย"
+                >
+                  <option value="chrome">Google Chrome</option>
+                  <option value="edge">Microsoft Edge</option>
+                  <option value="brave">Brave</option>
+                  <option value="firefox">Mozilla Firefox</option>
+                </select>
+              </div>
+            )}
+
+            <span className="browser-session-hint">
+              (แก้ Cloudflare 403 / คลิปจำกัดอายุ)
+            </span>
           </div>
         </section>
 
@@ -568,6 +635,23 @@ export default function App() {
                 <summary>รายละเอียดทางเทคนิค</summary>
                 <pre>{session.error.detail}</pre>
               </details>
+            )}
+            {isAntiBotChallengeError(session.error.detail) && !browserSession.enabled && (
+              <div className="alert-retry-row">
+                <button
+                  type="button"
+                  className="btn btn-sm btn-retry-cookies"
+                  onClick={() => {
+                    const next = { ...browserSession, enabled: true };
+                    setBrowserSession(next);
+                    saveBrowserSessionConfig(next);
+                    void session.inspectUrl(session.url, next.target);
+                  }}
+                >
+                  <RotateCcw size={13} />
+                  ลองใหม่อีกครั้งด้วย Cookies จาก {browserSession.target === "chrome" ? "Chrome" : browserSession.target === "edge" ? "Edge" : browserSession.target.toUpperCase()}
+                </button>
+              </div>
             )}
           </div>
         )}

@@ -11,6 +11,7 @@ pub enum DownloadRequest {
         url: String,
         format_spec: String,
         download_dir: String,
+        browser: Option<String>,
     },
     PhotoAlbum {
         url: String,
@@ -62,6 +63,7 @@ impl MediaPipeline {
                 url,
                 format_spec,
                 download_dir,
+                browser,
             } => {
                 downloader::run_download_with_job(
                     app,
@@ -70,6 +72,7 @@ impl MediaPipeline {
                     url,
                     format_spec,
                     download_dir,
+                    browser,
                 )
                 .await
             }
@@ -117,6 +120,7 @@ mod tests {
             url: "https://example.com/video".into(),
             format_spec: "best".into(),
             download_dir: "C:\\Downloads".into(),
+            browser: None,
         };
         assert!(matches!(req_video, DownloadRequest::Video { .. }));
 

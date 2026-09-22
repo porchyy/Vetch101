@@ -105,14 +105,18 @@ pub fn reveal_in_folder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn fetch_metadata(url: String, state: State<'_, Arc<DownloadManager>>) -> Result<MediaDetails, String> {
+pub async fn fetch_metadata(
+    url: String,
+    browser: Option<String>,
+    state: State<'_, Arc<DownloadManager>>,
+) -> Result<MediaDetails, String> {
     let job = state.inner().begin()?;
     tokio::task::spawn_blocking(move || {
         job.check_cancelled()?;
-        fetch_media_details(&url)
+        fetch_media_details(&url, browser.as_deref())
     })
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
+    .await
+    .map_err(|e| format!("Task error: {}", e))?
 }
 
 #[tauri::command]
@@ -122,6 +126,7 @@ pub async fn start_download(
     url: String,
     format_spec: String,
     download_dir: String,
+    browser: Option<String>,
 ) -> Result<DownloadOutcome, String> {
     let pipeline = crate::engine::pipeline::MediaPipeline::new(state.inner().clone());
     let outcome = pipeline
@@ -131,6 +136,7 @@ pub async fn start_download(
                 url,
                 format_spec,
                 download_dir,
+                browser,
             },
         )
         .await?;

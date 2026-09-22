@@ -134,9 +134,10 @@ pub async fn run_download(
     url: String,
     format_spec: String,
     download_dir: String,
+    browser: Option<String>,
 ) -> Result<crate::models::DownloadOutcome, String> {
     let job = manager.begin()?;
-    run_download_with_job(app, manager, job, url, format_spec, download_dir).await
+    run_download_with_job(app, manager, job, url, format_spec, download_dir, browser).await
 }
 
 pub async fn run_download_with_job(
@@ -146,6 +147,7 @@ pub async fn run_download_with_job(
     url: String,
     format_spec: String,
     download_dir: String,
+    browser: Option<String>,
 ) -> Result<crate::models::DownloadOutcome, String> {
     let url = validate_url(&url)?;
 
@@ -208,6 +210,13 @@ pub async fn run_download_with_job(
         "3",
         "--no-overwrites",
     ]);
+
+    if let Some(b) = browser.as_deref() {
+        let trimmed = b.trim();
+        if !trimmed.is_empty() && ["chrome", "edge", "brave", "firefox"].contains(&trimmed) {
+            cmd.args(["--cookies-from-browser", trimmed]);
+        }
+    }
 
     if format_spec == "thumbnail" {
         cmd.args(["--write-thumbnail", "--skip-download", "--convert-thumbnails", "jpg"]);

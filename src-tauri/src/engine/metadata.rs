@@ -9,7 +9,7 @@ use std::os::windows::process::CommandExt;
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-pub fn fetch_media_details(url: &str) -> Result<MediaDetails, String> {
+pub fn fetch_media_details(url: &str, browser: Option<&str>) -> Result<MediaDetails, String> {
     let url = super::validate_url(url)?;
 
     // If it's a TikTok URL, check if it is a photo post (carousel/slideshow)
@@ -57,6 +57,13 @@ pub fn fetch_media_details(url: &str) -> Result<MediaDetails, String> {
         "3",
     ]);
 
+    if let Some(b) = browser {
+        let trimmed = b.trim();
+        if !trimmed.is_empty() && ["chrome", "edge", "brave", "firefox"].contains(&trimmed) {
+            cmd.args(["--cookies-from-browser", trimmed]);
+        }
+    }
+
     // Pass ffmpeg location safely if absolute path exists
     if let Some(ffmpeg) = &binaries.ffmpeg_path {
         let p = Path::new(ffmpeg);
@@ -102,7 +109,31 @@ pub fn fetch_media_details(url: &str) -> Result<MediaDetails, String> {
         .map_err(|e| format!("ไม่สามารถอ่านข้อมูล JSON จาก yt-dlp: {}", e))?;
 
     let id = v["id"].as_str().unwrap_or("").to_string();
-    let title = v["title"].as_str().unwrap_or("ไม่มีชื่อคลิป").to_string();
+    let raw_title = v["title"].as_str().unwrap_or("").trim();
+    let is_direct_stream = url
+        .split('?')
+        .next()
+        .map(|p| p.ends_with(".m3u8") || p.ends_with(".mpd"))
+        .unwrap_or(false);
+
+    let title = if (raw_title.is_empty()
+        || raw_title == "ไม่มีชื่อคลิป"
+        || raw_title == "master"
+        || raw_title == "index"
+        || raw_title == "live"
+        || raw_title == "playlist")
+        && is_direct_stream
+    {
+        let epoch = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        format!("Stream_{epoch}")
+    } else if raw_title.is_empty() {
+        "ไม่มีชื่อคลิป".to_string()
+    } else {
+        raw_title.to_string()
+    };
     let thumbnail = v["thumbnails"]
         .as_array()
         .and_then(|arr| arr.iter().filter_map(|t| t["url"].as_str()).last())

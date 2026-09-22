@@ -239,12 +239,14 @@ export interface UseDownloadSessionOptions {
   folder: string;
   isBlocked?: boolean;
   inputRef?: React.RefObject<HTMLInputElement | null>;
+  browser?: string | null;
 }
 
 export function useDownloadSession({
   folder,
   isBlocked = false,
   inputRef,
+  browser,
 }: UseDownloadSessionOptions) {
   const [state, dispatch] = useReducer(sessionReducer, initialSessionState, (init) => {
     let initialFormat: ImageFormat = "jpg";
@@ -290,7 +292,7 @@ export function useDownloadSession({
 
   // 3. Inspect URL
   const inspectUrl = useCallback(
-    async (urlToInspect?: string) => {
+    async (urlToInspect?: string, overrideBrowser?: string | null) => {
       if (downloadLock.current || isBlocked) return;
       const target = (urlToInspect ?? state.url).trim();
 
@@ -310,7 +312,11 @@ export function useDownloadSession({
       dispatch({ type: "start_inspect", url: cleanUrl, revision: request });
 
       try {
-        const metadata = await invoke<MediaDetails>("fetch_metadata", { url: cleanUrl });
+        const targetBrowser = overrideBrowser !== undefined ? overrideBrowser : browser;
+        const metadata = await invoke<MediaDetails>("fetch_metadata", {
+          url: cleanUrl,
+          browser: targetBrowser || undefined,
+        });
         dispatch({ type: "inspect_success", revision: request, meta: metadata });
       } catch (err) {
         dispatch({
@@ -323,7 +329,7 @@ export function useDownloadSession({
         });
       }
     },
-    [isBlocked, state.url, inputRef]
+    [isBlocked, state.url, inputRef, browser]
   );
 
   // 4. Schedule inspection (debounced)
@@ -375,6 +381,7 @@ export function useDownloadSession({
         url: state.url,
         formatSpec: selected.format_spec,
         downloadDir: folder,
+        browser: browser || undefined,
       });
 
       const finalName =

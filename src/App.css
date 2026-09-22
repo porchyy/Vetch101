@@ -1547,3 +1547,111 @@ input {
     transform: none !important;
   }
 }
+
+/* Browser Session Handoff Bar */
+.browser-session-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background-color: var(--bg-subtle, #f5f3ef);
+  border: 1px solid var(--border-card, #e2ded9);
+  border-radius: var(--radius-sm, 8px);
+  font-size: 0.85rem;
+}
+
+.browser-session-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 500;
+  color: var(--text-main, #2d2926);
+}
+
+.browser-session-toggle input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: var(--accent, #e05d38);
+  width: 15px;
+  height: 15px;
+}
+
+.browser-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.browser-target-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.browser-target-prefix {
+  color: var(--text-muted, #767069);
+  font-size: 0.82rem;
+}
+
+.browser-select {
+  padding: 3px 8px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-main, #2d2926);
+  background-color: var(--bg-card, #ffffff);
+  border: 1px solid var(--border-card, #e2ded9);
+  border-radius: 4px;
+  cursor: pointer;
+  outline: none;
+}
+
+.browser-select:focus {
+  border-color: var(--accent, #e05d38);
+}
+
+.browser-session-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted, #767069);
+}
+
+/* One-Click Anti-Bot Retry Action */
+.alert-retry-row {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(220, 38, 38, 0.25);
+}
+
+.btn-retry-cookies {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #c53030;
+  background-color: #fff5f5;
+  border: 1px solid #feb2b2;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+[data-theme="dark"] .btn-retry-cookies {
+  color: #fc8181;
+  background-color: #2d1818;
+  border-color: #742a2a;
+}
+
+.btn-retry-cookies:hover {
+  background-color: #fed7d7;
+  border-color: #e53e3e;
+}
+
+[data-theme="dark"] .btn-retry-cookies:hover {
+  background-color: #3e1f1f;
+  border-color: #9b2c2c;
+}
+
