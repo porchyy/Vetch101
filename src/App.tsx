@@ -50,6 +50,7 @@ import {
   saveBrowserSessionConfig,
   type BrowserTarget,
   isAntiBotChallengeError,
+  getBrowserDisplayName,
 } from "./browser-session.ts";
 import { createUpdaterState, UpdaterAction, canStartUpdate, type UpdaterState } from "./updater-state";
 import { useDownloadSession } from "./useDownloadSession";
@@ -608,7 +609,10 @@ export default function App() {
               </div>
             )}
 
-            <span className="browser-session-hint">
+            <span
+              className="browser-session-hint"
+              title="อ่านคุกกี้เพื่อใช้ยืนยันตัวตนกับเว็บวิดีโอในเครื่องเท่านั้น โดยไม่มีการบันทึกหรือส่งออกข้อมูลภายนอก"
+            >
               (แก้ Cloudflare 403 / คลิปจำกัดอายุ)
             </span>
           </div>
@@ -649,7 +653,7 @@ export default function App() {
                   }}
                 >
                   <RotateCcw size={13} />
-                  ลองใหม่อีกครั้งด้วย Cookies จาก {browserSession.target === "chrome" ? "Chrome" : browserSession.target === "edge" ? "Edge" : browserSession.target.toUpperCase()}
+                  ลองใหม่อีกครั้งด้วย Cookies จาก {getBrowserDisplayName(browserSession.target)}
                 </button>
               </div>
             )}

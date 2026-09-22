@@ -4,10 +4,10 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Browser session state and persistence helpers in frontend
-- [ ] UI control bar below URL input with toggle switch, target dropdown, and privacy note
-- [ ] IPC seam extension to accept optional `browser: Option<String>` in `fetch_metadata` and `start_download`
-- [ ] Backend argument construction appends `--cookies-from-browser <target>` safely
-- [ ] Unit tests for browser target validation and command argument formatting
+- [x] Browser session state and persistence helpers in frontend
+- [x] UI control bar below URL input with toggle switch, target dropdown, and privacy note
+- [x] IPC seam extension to accept optional `browser: Option<String>` in `fetch_metadata` and `start_download`
+- [x] Backend argument construction appends `--cookies-from-browser <target>` safely
+- [x] Unit tests for browser target validation and command argument formatting

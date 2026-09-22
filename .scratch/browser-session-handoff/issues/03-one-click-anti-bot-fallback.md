@@ -4,9 +4,9 @@
 
 **Blocked by:** 02: Browser Session Handoff & Target Selection
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Helper function to detect anti-bot and 403 error patterns from error messages
-- [ ] Error UI component displays "ลองใหม่อีกครั้งด้วย Cookies จากเบราว์เซอร์" button when applicable
-- [ ] Clicking fallback action activates browser handoff and re-triggers inspection for the current URL
-- [ ] Unit tests for error pattern matching and fallback transition states
+- [x] Helper function to detect anti-bot and 403 error patterns from error messages
+- [x] Error UI component displays "ลองใหม่อีกครั้งด้วย Cookies จากเบราว์เซอร์" button when applicable
+- [x] Clicking fallback action activates browser handoff and re-triggers inspection for the current URL
+- [x] Unit tests for error pattern matching and fallback transition states

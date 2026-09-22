@@ -57,11 +57,8 @@ pub fn fetch_media_details(url: &str, browser: Option<&str>) -> Result<MediaDeta
         "3",
     ]);
 
-    if let Some(b) = browser {
-        let trimmed = b.trim();
-        if !trimmed.is_empty() && ["chrome", "edge", "brave", "firefox"].contains(&trimmed) {
-            cmd.args(["--cookies-from-browser", trimmed]);
-        }
+    if let Some(target) = super::get_browser_cookie_target(browser) {
+        cmd.args(["--cookies-from-browser", target]);
     }
 
     // Pass ffmpeg location safely if absolute path exists
@@ -110,11 +107,7 @@ pub fn fetch_media_details(url: &str, browser: Option<&str>) -> Result<MediaDeta
 
     let id = v["id"].as_str().unwrap_or("").to_string();
     let raw_title = v["title"].as_str().unwrap_or("").trim();
-    let is_direct_stream = url
-        .split('?')
-        .next()
-        .map(|p| p.ends_with(".m3u8") || p.ends_with(".mpd"))
-        .unwrap_or(false);
+    let is_direct_stream = super::is_direct_stream_url(&url);
 
     let title = if (raw_title.is_empty()
         || raw_title == "ไม่มีชื่อคลิป"

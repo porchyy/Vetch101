@@ -4,9 +4,9 @@
 
 **Blocked by:** 01: Direct Stream Ingestion, 03: One-Click Anti-Bot Fallback & Error Recovery
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Theme styling for browser selection row and toggle (dark/light themes)
-- [ ] Companion mascot mood reflects inspecting/downloading during session handoff
-- [ ] Full regression test suites (`npm test` and `cargo check`) pass 100%
-- [ ] Packaging release validation via release script
+- [x] Theme styling for browser selection row and toggle (dark/light themes)
+- [x] Companion mascot mood reflects inspecting/downloading during session handoff
+- [x] Full regression test suites (`npm test` and `cargo check`) pass 100%
+- [x] Packaging release validation via release script

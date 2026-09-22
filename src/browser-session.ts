@@ -18,6 +18,19 @@ export function isSupportedBrowser(browser: unknown): browser is BrowserTarget {
   return typeof browser === "string" && (SUPPORTED_BROWSERS as readonly string[]).includes(browser);
 }
 
+export function getBrowserDisplayName(target: BrowserTarget): string {
+  switch (target) {
+    case "chrome":
+      return "Google Chrome";
+    case "edge":
+      return "Microsoft Edge";
+    case "brave":
+      return "Brave";
+    case "firefox":
+      return "Mozilla Firefox";
+  }
+}
+
 export function isDirectStreamUrl(url: string | null | undefined): boolean {
   if (!url || typeof url !== "string") return false;
   try {

@@ -211,11 +211,8 @@ pub async fn run_download_with_job(
         "--no-overwrites",
     ]);
 
-    if let Some(b) = browser.as_deref() {
-        let trimmed = b.trim();
-        if !trimmed.is_empty() && ["chrome", "edge", "brave", "firefox"].contains(&trimmed) {
-            cmd.args(["--cookies-from-browser", trimmed]);
-        }
+    if let Some(target) = super::get_browser_cookie_target(browser.as_deref()) {
+        cmd.args(["--cookies-from-browser", target]);
     }
 
     if format_spec == "thumbnail" {

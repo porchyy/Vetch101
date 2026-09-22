@@ -4,9 +4,9 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Recognize `.m3u8` and `.mpd` URLs in validation and detection logic
-- [ ] Provide synthetic title and stream quality representation when upstream JSON metadata is minimal or absent
-- [ ] Frontend detects direct stream manifests and permits immediate download
-- [ ] Unit tests pass for direct stream URL detection and fallback title synthesis
+- [x] Recognize `.m3u8` and `.mpd` URLs in validation and detection logic
+- [x] Provide synthetic title and stream quality representation when upstream JSON metadata is minimal or absent
+- [x] Frontend detects direct stream manifests and permits immediate download
+- [x] Unit tests pass for direct stream URL detection and fallback title synthesis

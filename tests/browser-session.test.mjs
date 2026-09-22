@@ -5,6 +5,7 @@ import {
   synthesizeStreamTitle,
   SUPPORTED_BROWSERS,
   isSupportedBrowser,
+  getBrowserDisplayName,
   loadBrowserSessionConfig,
   saveBrowserSessionConfig,
   isAntiBotChallengeError,
@@ -63,6 +64,13 @@ test("SUPPORTED_BROWSERS includes expected modern browsers and validates targets
   assert.equal(isSupportedBrowser("safari"), false);
   assert.equal(isSupportedBrowser("opera"), false);
   assert.equal(isSupportedBrowser(""), false);
+});
+
+test("getBrowserDisplayName formats friendly names consistently", () => {
+  assert.equal(getBrowserDisplayName("chrome"), "Google Chrome");
+  assert.equal(getBrowserDisplayName("edge"), "Microsoft Edge");
+  assert.equal(getBrowserDisplayName("brave"), "Brave");
+  assert.equal(getBrowserDisplayName("firefox"), "Mozilla Firefox");
 });
 
 test("loadBrowserSessionConfig and saveBrowserSessionConfig persist choices correctly", () => {

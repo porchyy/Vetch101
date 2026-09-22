@@ -38,6 +38,25 @@ pub fn validate_url(value: &str) -> Result<String, String> {
     Ok(url.to_string())
 }
 
+pub const SUPPORTED_BROWSERS: &[&str] = &["chrome", "edge", "brave", "firefox"];
+
+pub fn get_browser_cookie_target(browser: Option<&str>) -> Option<&'static str> {
+    if let Some(b) = browser {
+        let trimmed = b.trim();
+        for &s in SUPPORTED_BROWSERS {
+            if s.eq_ignore_ascii_case(trimmed) {
+                return Some(s);
+            }
+        }
+    }
+    None
+}
+
+pub fn is_direct_stream_url(url: &str) -> bool {
+    let clean = url.split(['?', '#']).next().unwrap_or("").to_ascii_lowercase();
+    clean.ends_with(".m3u8") || clean.ends_with(".mpd")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -67,5 +86,24 @@ mod tests {
         assert!(validate_url("--exec=calc").is_err());
         assert!(validate_url("file:///etc/passwd").is_err());
         assert!(validate_url("https://user:pass@example.com/video").is_err());
+    }
+
+    #[test]
+    fn test_is_direct_stream_url() {
+        assert!(is_direct_stream_url("https://example.com/live/playlist.m3u8"));
+        assert!(is_direct_stream_url("https://example.com/live/playlist.M3U8?token=abc#seg"));
+        assert!(is_direct_stream_url("https://example.com/manifest.mpd?sign=1"));
+        assert!(!is_direct_stream_url("https://example.com/watch?v=123"));
+        assert!(!is_direct_stream_url("https://example.com/page.html"));
+    }
+
+    #[test]
+    fn test_get_browser_cookie_target() {
+        assert_eq!(get_browser_cookie_target(Some("chrome")), Some("chrome"));
+        assert_eq!(get_browser_cookie_target(Some("EDGE")), Some("edge"));
+        assert_eq!(get_browser_cookie_target(Some("Brave")), Some("brave"));
+        assert_eq!(get_browser_cookie_target(Some("firefox")), Some("firefox"));
+        assert_eq!(get_browser_cookie_target(Some("unknown_browser")), None);
+        assert_eq!(get_browser_cookie_target(None), None);
     }
 }

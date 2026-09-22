@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { DownloadOutcome, DownloadProgressPayload, MediaDetails } from "./models.ts";
 import { parseDroppedVideoUrl, parseVideoUrl } from "./video-url.ts";
+import { isDirectStreamUrl, synthesizeStreamTitle } from "./browser-session.ts";
 import {
   detectPlatform,
   useHistory,
@@ -317,7 +318,17 @@ export function useDownloadSession({
           url: cleanUrl,
           browser: targetBrowser || undefined,
         });
-        dispatch({ type: "inspect_success", revision: request, meta: metadata });
+        let finalMeta = metadata;
+        if (finalMeta.type === "video" && isDirectStreamUrl(cleanUrl)) {
+          const rawTitle = finalMeta.title?.trim().toLowerCase() || "";
+          if (!rawTitle || rawTitle === "ไม่มีชื่อคลิป" || ["master", "index", "live", "playlist", "manifest"].includes(rawTitle)) {
+            finalMeta = {
+              ...finalMeta,
+              title: synthesizeStreamTitle(cleanUrl),
+            };
+          }
+        }
+        dispatch({ type: "inspect_success", revision: request, meta: finalMeta });
       } catch (err) {
         dispatch({
           type: "inspect_failure",
