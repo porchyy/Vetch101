@@ -142,10 +142,12 @@ export default function App() {
     deps,
     checkingDeps,
     updatingYtdlp,
+    installingDependencies,
     updateMsg,
     setUpdateMsg,
     updaterState,
     handleUpdateYtdlp,
+    handleInstallDependencies,
     handleCheckAppUpdate,
     handleStartAppUpdate,
     handleDismissAppUpdate,
@@ -233,7 +235,7 @@ export default function App() {
               <LoaderCircle size={13} className="spin" />
               กำลังตรวจเครื่องมือ
             </span>
-          ) : deps?.ytdlp_available ? (
+          ) : deps?.ytdlp_available && deps.ffmpeg_available && deps.ffprobe_available ? (
             <div className="tool-status-group">
               <span className="status-pill status-ready" title={`yt-dlp: ${deps.ytdlp_version || "พร้อมใช้งาน"}`}>
                 <span className="dot dot-ready" />
@@ -259,10 +261,21 @@ export default function App() {
               </button>
             </div>
           ) : (
-            <span className="status-pill status-warning" title="ไม่พบโปรแกรม yt-dlp หรือ FFmpeg ในเครื่อง">
-              <span className="dot dot-warning" />
-              ไม่พบเครื่องมือดาวน์โหลด
-            </span>
+            <div className="tool-status-group">
+              <span className="status-pill status-warning" title="ไม่พบ yt-dlp, FFmpeg หรือ FFprobe ในเครื่อง">
+                <span className="dot dot-warning" />
+                เครื่องมือไม่ครบ
+              </span>
+              <button
+                className="button-icon-subtle"
+                onClick={() => void handleInstallDependencies()}
+                disabled={installingDependencies || session.isDownloading || session.isInspecting || updaterState.status === "downloading" || updaterState.status === "applying"}
+                title="ดาวน์โหลดและติดตั้ง yt-dlp กับ FFmpeg ในแอป"
+              >
+                <RefreshCw size={13} className={installingDependencies ? "spin" : ""} />
+                {installingDependencies ? "กำลังติดตั้ง..." : "ติดตั้งเครื่องมือ"}
+              </button>
+            </div>
           )}
 
           {/* Header Controls: Mascot and Theme */}
@@ -293,7 +306,7 @@ export default function App() {
       <main className="main-content">
         <UpdateBanner
           state={updaterState}
-          isDownloading={session.isDownloading || session.downloadLockActive || updatingYtdlp}
+          isDownloading={session.isDownloading || session.downloadLockActive || updatingYtdlp || installingDependencies}
           isInspecting={session.isInspecting}
           onStartUpdate={handleStartAppUpdate}
           onDismiss={handleDismissAppUpdate}

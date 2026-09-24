@@ -45,6 +45,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             check_dependencies,
+            install_dependencies,
             update_ytdlp,
             get_default_download_dir,
             select_folder,

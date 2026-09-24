@@ -37,6 +37,7 @@ export function useAppUpdates({
   const [deps, setDeps] = useState<DependencyStatus | null>(null);
   const [checkingDeps, setCheckingDeps] = useState(true);
   const [updatingYtdlp, setUpdatingYtdlp] = useState(false);
+  const [installingDependencies, setInstallingDependencies] = useState(false);
   const [updateMsg, setUpdateMsg] = useState<string | null>(null);
 
   const updateLock = useRef(false);
@@ -46,7 +47,7 @@ export function useAppUpdates({
 
   const [updaterState, setUpdaterState] = useState<UpdaterState>(createUpdaterState());
 
-  const isUpdateBlocked = updatingYtdlp || updateLock.current || updaterState.status === "applying";
+  const isUpdateBlocked = updatingYtdlp || installingDependencies || updateLock.current || updaterState.status === "applying";
 
   // 1. Initial dependency check and default directory resolution
   const refreshDependencies = useCallback(async () => {
@@ -84,6 +85,24 @@ export function useAppUpdates({
       downloadLockActive,
     };
   }, [getMediaStatus, isDownloading, isInspecting, downloadLockActive]);
+
+  const handleInstallDependencies = useCallback(async () => {
+    const media = checkMedia();
+    if (media.downloadLockActive || media.isDownloading || media.isInspecting || updateLock.current || appUpdateLock.current) return;
+    updateLock.current = true;
+    setInstallingDependencies(true);
+    setUpdateMsg(null);
+    onError?.(null);
+    try {
+      setUpdateMsg(await invoke<string>("install_dependencies"));
+    } catch (e) {
+      onError?.({ summary: "ติดตั้งเครื่องมือดาวน์โหลดไม่สำเร็จ", detail: String(e) });
+    } finally {
+      try { setDeps(await invoke<DependencyStatus>("check_dependencies")); } catch {}
+      updateLock.current = false;
+      setInstallingDependencies(false);
+    }
+  }, [checkMedia, onError]);
 
   // 2. Engine (yt-dlp) update
   const handleUpdateYtdlp = useCallback(
@@ -217,6 +236,7 @@ export function useAppUpdates({
       appUpdateLock.current ||
       updateLock.current ||
       updatingYtdlp ||
+      installingDependencies ||
       media.isDownloading ||
       media.isInspecting ||
       media.downloadLockActive
@@ -238,6 +258,7 @@ export function useAppUpdates({
   }, [
     updaterState.status,
     updatingYtdlp,
+    installingDependencies,
     checkMedia,
   ]);
 
@@ -278,12 +299,14 @@ export function useAppUpdates({
     deps,
     checkingDeps,
     updatingYtdlp,
+    installingDependencies,
     updateMsg,
     setUpdateMsg,
     updaterState,
     isUpdateBlocked,
     refreshDependencies,
     handleUpdateYtdlp,
+    handleInstallDependencies,
     handleCheckAppUpdate,
     handleStartAppUpdate,
     handleDismissAppUpdate,

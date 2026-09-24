@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use sha2::{Digest, Sha256};
+use std::io::Read;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -225,6 +227,106 @@ pub fn get_binaries() -> BinaryPaths {
     }
 }
 
+const YTDLP_BASE: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/";
+const FFMPEG_BASE: &str = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
+
+fn download(url: &str, destination: &Path) -> Result<(), String> {
+    let mut cmd = Command::new("curl.exe");
+    cmd.args(["--fail", "--silent", "--show-error", "--location", "--proto", "=https", "--proto-redir", "=https", "--connect-timeout", "15", "--max-time", "600", "--output"])
+        .arg(destination).arg(url);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let output = cmd.output().map_err(|e| e.to_string())?;
+    if output.status.success() { Ok(()) } else {
+        Err(format!("ดาวน์โหลดไม่สำเร็จ: {}", String::from_utf8_lossy(&output.stderr).trim()))
+    }
+}
+
+fn checksum_for(contents: &str, filename: &str) -> Result<String, String> {
+    contents.lines().find_map(|line| {
+        let mut parts = line.split_whitespace();
+        let hash = parts.next()?;
+        let name = parts.next();
+        if (name.is_none() || name == Some(filename)) && hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+            Some(hash.to_ascii_lowercase())
+        } else { None }
+    }).ok_or_else(|| format!("ไม่พบ SHA-256 ของ {filename}"))
+}
+
+fn verify_checksum(path: &Path, expected: &str) -> Result<(), String> {
+    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut hash = Sha256::new();
+    let mut buffer = [0u8; 65536];
+    loop {
+        let len = file.read(&mut buffer).map_err(|e| e.to_string())?;
+        if len == 0 { break; }
+        hash.update(&buffer[..len]);
+    }
+    if format!("{:x}", hash.finalize()) == expected { Ok(()) } else { Err("SHA-256 ของไฟล์ไม่ตรงกับผู้เผยแพร่".into()) }
+}
+
+fn find_extracted(root: &Path, name: &str) -> Option<PathBuf> {
+    for entry in std::fs::read_dir(root).ok()?.flatten() {
+        let path = entry.path();
+        if path.is_file() && path.file_name().and_then(|file| file.to_str()) == Some(name) { return Some(path); }
+        if path.is_dir() {
+            if let Some(found) = find_extracted(&path, name) { return Some(found); }
+        }
+    }
+    None
+}
+
+pub fn install_missing_tools() -> Result<String, String> {
+    let binaries = get_binaries();
+    let need_ytdlp = binaries.ytdlp_path.is_none();
+    let need_ffmpeg = binaries.ffmpeg_path.is_none() || binaries.ffprobe_path.is_none();
+    if !need_ytdlp && !need_ffmpeg { return Ok("เครื่องมือพร้อมใช้งานแล้ว".into()); }
+    let directory = binaries.app_bin_dir.join(format!("install-{}-{}", std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos()));
+    std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+    let result = (|| {
+        let ytdlp = directory.join("yt-dlp.exe");
+        if need_ytdlp {
+            let sums = directory.join("SHA2-256SUMS");
+            download(&format!("{YTDLP_BASE}SHA2-256SUMS"), &sums)?;
+            download(&format!("{YTDLP_BASE}yt-dlp.exe"), &ytdlp)?;
+            let checksum = checksum_for(&std::fs::read_to_string(sums).map_err(|e| e.to_string())?, "yt-dlp.exe")?;
+            verify_checksum(&ytdlp, &checksum)?;
+            get_tool_version(&ytdlp.to_string_lossy(), &["--version"]).ok_or("yt-dlp ที่ดาวน์โหลดมาเปิดไม่ได้")?;
+        }
+        if need_ffmpeg {
+            let archive = directory.join("ffmpeg.zip");
+            let sums = directory.join("ffmpeg.sha256");
+            download(&format!("{FFMPEG_BASE}.sha256"), &sums)?;
+            download(FFMPEG_BASE, &archive)?;
+            let checksum = checksum_for(&std::fs::read_to_string(sums).map_err(|e| e.to_string())?, "ffmpeg-release-essentials.zip")?;
+            verify_checksum(&archive, &checksum)?;
+            let extracted = directory.join("extracted");
+            std::fs::create_dir(&extracted).map_err(|e| e.to_string())?;
+            let mut cmd = Command::new("tar.exe");
+            cmd.arg("-xf").arg(&archive).arg("-C").arg(&extracted);
+            #[cfg(target_os = "windows")]
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            if !cmd.status().map_err(|e| e.to_string())?.success() { return Err("แตกไฟล์ FFmpeg ไม่สำเร็จ".into()); }
+            for name in ["ffmpeg.exe", "ffprobe.exe"] {
+                let source = find_extracted(&extracted, name).ok_or_else(|| format!("ไม่พบ {name} ในไฟล์ FFmpeg"))?;
+                if !check_command_works(&source.to_string_lossy(), &["-version"]) { return Err(format!("{name} ที่ดาวน์โหลดมาเปิดไม่ได้")); }
+                std::fs::copy(source, directory.join(name)).map_err(|e| e.to_string())?;
+            }
+        }
+        for name in ["yt-dlp.exe", "ffmpeg.exe", "ffprobe.exe"] {
+            let source = directory.join(name);
+            let target = binaries.app_bin_dir.join(name);
+            if source.exists() && !target.exists() {
+                std::fs::rename(&source, target).map_err(|e| format!("ติดตั้ง {name} ไม่สำเร็จ: {e}"))?;
+            }
+        }
+        Ok("ติดตั้งเครื่องมือดาวน์โหลดเรียบร้อยแล้ว".into())
+    })();
+    let _ = std::fs::remove_dir_all(&directory);
+    result
+}
+
 pub fn update_ytdlp_tool(binaries: &BinaryPaths) -> Result<String, String> {
     let ytdlp = binaries
         .ytdlp_path
@@ -330,6 +432,14 @@ fn resolve_standalone_engine(source: &str, search_path: &std::ffi::OsStr) -> Opt
 #[cfg(test)]
 mod update_tests {
     use super::*;
+
+    #[test]
+    fn parses_vendor_checksums_without_accepting_wrong_files() {
+        let sums = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  other.exe\nBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB  yt-dlp.exe\n";
+        assert_eq!(checksum_for(sums, "yt-dlp.exe").unwrap(), "b".repeat(64));
+        assert!(checksum_for(sums, "missing.exe").is_err());
+        assert_eq!(checksum_for(&"c".repeat(64), "ffmpeg-release-essentials.zip").unwrap(), "c".repeat(64));
+    }
 
     #[test]
     fn resolves_standalone_engine_available_only_through_path() {

@@ -10,27 +10,26 @@
 
 ---
 
-## 📦 ดาวน์โหลดเวอร์ชันล่าสุด (Downloads - v0.2.2)
+## 📦 ดาวน์โหลดเวอร์ชันล่าสุด (Downloads - v0.2.3)
 
-สามารถดาวน์โหลดไฟล์พร้อมใช้งานได้จากหน้า [GitHub Releases v0.2.2](https://github.com/porchyy/Vetch101/releases/tag/v0.2.2):
+สามารถดาวน์โหลดไฟล์พร้อมใช้งานได้จากหน้า [GitHub Releases v0.2.3](https://github.com/porchyy/Vetch101/releases/tag/v0.2.3):
 
 | รูปแบบการใช้งาน | ชนิดไฟล์ | ลิงก์ดาวน์โหลดโดยตรง | คำแนะนำการใช้งาน |
 | :--- | :---: | :---: | :--- |
-| **All-in-One Portable (แนะนำ)** | `.zip` | [ดาวน์โหลด Portable ZIP](https://github.com/porchyy/Vetch101/releases/download/v0.2.2/Vetch101_0.2.2_x64-portable.zip) | แตกไฟล์แล้วเปิด `Vetch101.exe` หรือ `run.bat` ได้ทันที รวม `yt-dlp` และ `FFmpeg` พร้อมใช้ในตัว |
-| **One-Click Installer** | `.exe` | [ดาวน์โหลด Setup Installer](https://github.com/porchyy/Vetch101/releases/download/v0.2.2/Vetch101_0.2.2_x64-setup.exe) | ตัวติดตั้งเดี่ยวอัตโนมัติ สร้างไอคอนบน Desktop พร้อมใช้งานทันทีในคลิกเดียว |
-| **Windows Installer** | `.msi` | [ดาวน์โหลด MSI Package](https://github.com/porchyy/Vetch101/releases/download/v0.2.2/Vetch101_0.2.2_x64_en-US.msi) | ตัวติดตั้งสำหรับระบบ Enterprise / System Admin |
+| **All-in-One Portable (แนะนำ)** | `.zip` | [ดาวน์โหลด Portable ZIP](https://github.com/porchyy/Vetch101/releases/download/v0.2.3/Vetch101_0.2.3_x64-portable.zip) | แตกไฟล์แล้วเปิด `Vetch101.exe` ได้ทันที รวม `yt-dlp` และ `FFmpeg` พร้อมใช้ในตัว |
+| **One-Click Installer** | `.exe` | [ดาวน์โหลด Setup Installer](https://github.com/porchyy/Vetch101/releases/download/v0.2.3/Vetch101_0.2.3_x64-setup.exe) | ตัวติดตั้งเดี่ยวอัตโนมัติ สร้างไอคอนบน Desktop พร้อมใช้งานทันทีในคลิกเดียว |
 
 ---
 
 ## ⚡ วิธีเริ่มต้นใช้งานแบบง่ายที่สุด (Quick Start)
 
 ### แบบที่ 1: Portable (ไม่ต้องติดตั้ง สะดวกที่สุด)
-1. ดาวน์โหลดไฟล์ [Vetch101_0.2.2_x64-portable.zip](https://github.com/porchyy/Vetch101/releases/download/v0.2.2/Vetch101_0.2.2_x64-portable.zip)
+1. ดาวน์โหลดไฟล์ [Vetch101_0.2.3_x64-portable.zip](https://github.com/porchyy/Vetch101/releases/download/v0.2.3/Vetch101_0.2.3_x64-portable.zip)
 2. แตกไฟล์ ZIP ออกมาไว้ในโฟลเดอร์ที่ต้องการ
-3. ดับเบิลคลิกที่ไฟล์ **`run.bat`** หรือ **`Vetch101.exe`** เริ่มใช้งานได้ทันที (มีเครื่องมือครบในโฟลเดอร์ ไม่ต้องโหลดอะไรเพิ่ม)
+3. ดับเบิลคลิกที่ไฟล์ **`Vetch101.exe`** เริ่มใช้งานได้ทันที (มีเครื่องมือครบในโฟลเดอร์ ไม่ต้องโหลดอะไรเพิ่ม)
 
 ### แบบที่ 2: ติดตั้งลงเครื่อง (มีไอคอนหน้าจอ Desktop)
-1. ดาวน์โหลดไฟล์ [Vetch101_0.2.2_x64-setup.exe](https://github.com/porchyy/Vetch101/releases/download/v0.2.2/Vetch101_0.2.2_x64-setup.exe)
+1. ดาวน์โหลดไฟล์ [Vetch101_0.2.3_x64-setup.exe](https://github.com/porchyy/Vetch101/releases/download/v0.2.3/Vetch101_0.2.3_x64-setup.exe)
 2. ดับเบิลคลิกไฟล์ตัวติดตั้ง กด "Next" จนเสร็จสิ้น
 3. เปิดใช้งานผ่านไอคอน **Vetch101** บนหน้าจอ Desktop ของคุณได้ทันที
 
@@ -43,6 +42,7 @@ Vetch101 ออกแบบมาเพื่อความง่ายสู�
 - **ไม่ต้องลงโปรแกรมเพิ่ม**: ไม่ต้องติดตั้ง WinGet, Python, Node.js หรือตั้งค่า Environment PATH ใดๆ ทั้งสิ้น
 - **ไม่ต้องเปิด Terminal / Command Prompt**: ใช้งานผ่านหน้าต่างโปรแกรมที่สวยงาม วางลิงก์แล้วกดดาวน์โหลดได้ทันที
 - **อัปเดตเครื่องมือได้ในคลิกเดียว**: มีปุ่มกด **"อัปเดต yt-dlp"** อยู่ที่มุมขวาบน โปรแกรมจะจัดการอัปเดตให้เองอัตโนมัติ
+- **ติดตั้งเครื่องมือจากในแอป**: ถ้า `yt-dlp`, `FFmpeg` หรือ `FFprobe` ขาด กด **"ติดตั้งเครื่องมือ"** ที่มุมขวาบน แอปจะดาวน์โหลดจากผู้เผยแพร่ ตรวจ SHA-256 แล้วติดตั้งไว้ในโฟลเดอร์ข้อมูลของแอป
 - **ปลอดภัย ไร้ Process ตกค้าง**: มีระบบจัดการ Job Object บน Windows เมื่อปิดหน้าต่างแอป กระบวนการทำงานเบื้องหลังจะถูกปิดอย่างหมดจด ไม่กินแรมเครื่อง
 
 ---
@@ -65,13 +65,13 @@ Vetch101 ออกแบบมาเพื่อความง่ายสู�
 
 `npm run tauri dev` เปิดแอป Desktop พร้อม Vite สำหรับพัฒนา UI เท่านั้น ตัวแอปที่บิลด์แล้วฝังไฟล์ UI และเรียก Rust ผ่าน IPC โดยไม่มี Express, API proxy หรือ localhost backend
 
-`npm run release` เรียก `npm run tauri build`, ตรวจ artifacts, คัดลอก EXE + DLL ไปโฟลเดอร์หลัก/`dist-desktop`, คัดลอก NSIS/MSI และตรวจ SHA-256 ก่อนทดสอบเปิด/ปิดจากปลายทางทั้งสองแห่ง สคริปต์หยุดเมื่อ build/copy/check ล้มเหลวหรือมีแอป/Cargo ทำงานอยู่ ไม่ปิดงานดาวน์โหลดของผู้ใช้ ดู log ที่ `logs/release.log`
+`npm run release` เรียก `npm run tauri build`, ตรวจ artifacts, คัดลอก EXE + DLL ไปโฟลเดอร์หลัก/`dist-desktop`, คัดลอก NSIS และตรวจ SHA-256 ก่อนทดสอบเปิด/ปิดจากปลายทางทั้งสองแห่ง สคริปต์หยุดเมื่อ build/copy/check ล้มเหลวหรือมีแอป/Cargo ทำงานอยู่ ไม่ปิดงานดาวน์โหลดของผู้ใช้ ดู log ที่ `logs/release.log`
 
 การตรวจ portable ยืนยัน main window และ graceful close ด้วย Windows process API; ไม่ใช่การตรวจหน้าจอทุกปุ่มหรือการทดสอบ installer ใช้ `scripts/test-portable.ps1 -Directories <โฟลเดอร์ที่ติดตั้ง>` เพื่อตรวจเปิดหลังติดตั้งแยกต่างหาก
 
 `build.rs` ป้องกัน GCC 16 เพิ่ม manifest ซ้ำ โดยปรับ endfile specs เฉพาะ EXE นี้; manifest ของแอปคง Common Controls v6, longPathAware และ asInvoker ไว้ Release script จะไม่คัดลอกหากยังพบ `.rsrc merge failure`
 
-สำหรับ Windows target (MSVC) ที่กำหนดใน `.cargo/config.toml` ต้องมี `WebView2Loader.dll` วางข้าง `Vetch101.exe` ทั้งในโฟลเดอร์หลักและ `dist-desktop/` ด้วย มิฉะนั้น EXE จะเปิดไม่ขึ้น ตัวติดตั้ง NSIS/MSI รวม DLL นี้ไว้แล้ว
+สำหรับ Windows target (MSVC) ที่กำหนดใน `.cargo/config.toml` ต้องมี `WebView2Loader.dll` วางข้าง `Vetch101.exe` ทั้งในโฟลเดอร์หลักและ `dist-desktop/` ด้วย มิฉะนั้น EXE จะเปิดไม่ขึ้น ตัวติดตั้ง NSIS รวม DLL นี้ไว้แล้ว
 
 ซากเว็บเดิม (`server/`, Docker และ Render config) ถูกย้ายไป `temp/web-archive/` ซึ่งถูกละเว้นจาก Git และการบิลด์ สำรองโค้ดเดิมยังอยู่ที่ branch `backup-pre-refactor`
 

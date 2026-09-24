@@ -57,8 +57,7 @@ try {
         @{ Source = "$release/WebView2Loader.dll"; Dest = "$project/WebView2Loader.dll" },
         @{ Source = "$release/vetch101.exe"; Dest = "$dist/Vetch101.exe" },
         @{ Source = "$release/WebView2Loader.dll"; Dest = "$dist/WebView2Loader.dll" },
-        @{ Source = "$release/bundle/nsis/Vetch101_${version}_x64-setup.exe"; Dest = "$dist/Vetch101_${version}_x64-setup.exe" },
-        @{ Source = "$release/bundle/msi/Vetch101_${version}_x64_en-US.msi"; Dest = "$dist/Vetch101_${version}_x64_en-US.msi" }
+        @{ Source = "$release/bundle/nsis/Vetch101_${version}_x64-setup.exe"; Dest = "$dist/Vetch101_${version}_x64-setup.exe" }
     )
     foreach ($copy in $copies) {
         if (!(Test-Path -LiteralPath $copy.Source -PathType Leaf) -or (Get-Item -LiteralPath $copy.Source).Length -eq 0) {
@@ -74,13 +73,19 @@ try {
     }
     $portableZip = Join-Path $dist "Vetch101_${version}_x64-portable.zip"
     Write-Host "Creating portable archive: $portableZip"
-    tar -a -cf $portableZip -C $dist Vetch101.exe WebView2Loader.dll bin
-    if ($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $portableZip -PathType Leaf) -or (Get-Item -LiteralPath $portableZip).Length -eq 0) {
-        throw "Failed to create portable zip archive ($LASTEXITCODE): $portableZip"
-    }
+    Add-Type -AssemblyName System.IO.Compression -ErrorAction SilentlyContinue
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+    $archive = [System.IO.Compression.ZipFile]::Open($portableZip, [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($name in @('Vetch101.exe', 'WebView2Loader.dll')) {
+            [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, (Join-Path $dist $name), $name, [System.IO.Compression.CompressionLevel]::Optimal)
+        }
+        foreach ($file in Get-ChildItem -LiteralPath $binDir -File) {
+            [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, "bin/$($file.Name)", [System.IO.Compression.CompressionLevel]::Optimal)
+        }
+    } finally { $archive.Dispose() }
 
     # Verify portable ZIP contents
-    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
     $zipArchive = [System.IO.Compression.ZipFile]::OpenRead($portableZip)
     try {
         $entryNames = $zipArchive.Entries | ForEach-Object { $_.FullName.Replace('\', '/') }

@@ -1,4 +1,4 @@
-use crate::engine::detector::{get_binaries, stage_engine_update, update_ytdlp_tool};
+use crate::engine::detector::{get_binaries, install_missing_tools, stage_engine_update, update_ytdlp_tool};
 use crate::engine::downloader::DownloadManager;
 use crate::engine::metadata::fetch_media_details;
 use crate::engine::updater::{check_github_release, launch_installer_and_exit, AppUpdater};
@@ -24,6 +24,15 @@ pub async fn check_dependencies() -> Result<DependencyStatus, String> {
         ytdlp_version: binaries.ytdlp_version,
         app_bin_dir: binaries.app_bin_dir.to_string_lossy().to_string(),
     })
+}
+
+#[tauri::command]
+pub async fn install_dependencies(state: State<'_, Arc<DownloadManager>>) -> Result<String, String> {
+    let job = state.inner().begin()?;
+    tokio::task::spawn_blocking(move || {
+        job.check_cancelled()?;
+        install_missing_tools()
+    }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
