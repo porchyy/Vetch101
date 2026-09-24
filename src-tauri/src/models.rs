@@ -95,13 +95,6 @@ impl MediaDetails {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PhotoDownloadResult {
-    pub total: usize,
-    pub succeeded: usize,
-    pub failed_indices: Vec<u32>,
-    pub saved_files: Vec<String>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadProgressPayload {

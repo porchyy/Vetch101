@@ -128,17 +128,6 @@ pub fn is_valid_format_spec(format_spec: &str) -> bool {
     )
 }
 
-pub async fn run_download(
-    app: AppHandle,
-    manager: Arc<DownloadManager>,
-    url: String,
-    format_spec: String,
-    download_dir: String,
-    browser: Option<String>,
-) -> Result<crate::models::DownloadOutcome, String> {
-    let job = manager.begin()?;
-    run_download_with_job(app, manager, job, url, format_spec, download_dir, browser).await
-}
 
 pub async fn run_download_with_job(
     app: AppHandle,

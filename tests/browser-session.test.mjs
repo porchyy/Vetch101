@@ -118,3 +118,30 @@ test("isAntiBotChallengeError identifies Cloudflare and 403 challenge signatures
   assert.equal(isAntiBotChallengeError(""), false);
   assert.equal(isAntiBotChallengeError(null), false);
 });
+
+test("switching browser session configuration propagates active target dynamically for handoff", () => {
+  const mockStorage = createMockStorage();
+  saveBrowserSessionConfig({ enabled: false, target: "chrome" }, mockStorage);
+
+  let currentConfig = loadBrowserSessionConfig(mockStorage);
+  let resolvedTarget = currentConfig.enabled ? currentConfig.target : null;
+  assert.equal(resolvedTarget, null);
+
+  // Enable browser cookies
+  saveBrowserSessionConfig({ enabled: true, target: "chrome" }, mockStorage);
+  currentConfig = loadBrowserSessionConfig(mockStorage);
+  resolvedTarget = currentConfig.enabled ? currentConfig.target : null;
+  assert.equal(resolvedTarget, "chrome");
+
+  // Switch browser target to Edge
+  saveBrowserSessionConfig({ enabled: true, target: "edge" }, mockStorage);
+  currentConfig = loadBrowserSessionConfig(mockStorage);
+  resolvedTarget = currentConfig.enabled ? currentConfig.target : null;
+  assert.equal(resolvedTarget, "edge");
+
+  // Switch browser target to Firefox
+  saveBrowserSessionConfig({ enabled: true, target: "firefox" }, mockStorage);
+  currentConfig = loadBrowserSessionConfig(mockStorage);
+  resolvedTarget = currentConfig.enabled ? currentConfig.target : null;
+  assert.equal(resolvedTarget, "firefox");
+});

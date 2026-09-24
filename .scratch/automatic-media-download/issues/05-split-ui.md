@@ -4,10 +4,10 @@
 
 **Blocked by:** Ticket 1 (data model), Ticket 2 (auto-inspect)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `VideoResultCard` component: thumbnail, title, prominent DL button, collapsible extras
-- [ ] `PhotoResultCard` component: image strip, count, PNG/JPG toggle, DL button
-- [ ] Selecting `photo_post` as result type shows `PhotoResultCard`, otherwise `VideoResultCard`
-- [ ] Image format preference stored in localStorage
-- [ ] Keyboard nav: tab order, visible focus rings on all interactive elements
+- [x] `VideoResultCard` component: thumbnail, title, prominent DL button, collapsible extras
+- [x] `PhotoResultCard` component: image strip, count, PNG/JPG toggle, DL button
+- [x] Selecting `photo_post` as result type shows `PhotoResultCard`, otherwise `VideoResultCard`
+- [x] Image format preference stored in localStorage
+- [x] Keyboard nav: tab order, visible focus rings on all interactive elements

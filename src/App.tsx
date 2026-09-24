@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { parseVideoUrl } from "./video-url.ts";
 import {
   AlertCircle,
@@ -52,9 +51,8 @@ import {
   isAntiBotChallengeError,
   getBrowserDisplayName,
 } from "./browser-session.ts";
-import { createUpdaterState, UpdaterAction, canStartUpdate, type UpdaterState } from "./updater-state";
 import { useDownloadSession } from "./useDownloadSession";
-import type { DependencyStatus } from "./models.ts";
+import { useAppUpdates } from "./useAppUpdates";
 
 const FOLDER_STORAGE_KEY = "vetch101_download_dir";
 
@@ -63,16 +61,7 @@ export default function App() {
     return localStorage.getItem(FOLDER_STORAGE_KEY) || "";
   });
 
-  const [deps, setDeps] = useState<DependencyStatus | null>(null);
-  const [checkingDeps, setCheckingDeps] = useState(true);
-  const [updatingYtdlp, setUpdatingYtdlp] = useState(false);
-  const [updateMsg, setUpdateMsg] = useState<string | null>(null);
-
   const inputRef = useRef<HTMLInputElement>(null);
-  const updateLock = useRef(false);
-
-  // App updater state & actions
-  const [updaterState, setUpdaterState] = useState<UpdaterState>(createUpdaterState());
 
   // Visual Theme State
   const [theme, setTheme] = useState<Theme>(() => {
@@ -129,10 +118,33 @@ export default function App() {
 
   const session = useDownloadSession({
     folder,
-    isBlocked: updatingYtdlp || updateLock.current || updaterState.status === "applying",
+    isBlocked: () => updates.isUpdateBlocked,
     inputRef,
     browser: browserSession.enabled ? browserSession.target : null,
   });
+
+  const updates = useAppUpdates({
+    folder,
+    onSetFolder: setFolder,
+    isDownloading: session.isDownloading,
+    isInspecting: session.isInspecting,
+    downloadLockActive: session.downloadLockActive,
+    onError: session.setError,
+    onNotice: session.setNotice,
+  });
+
+  const {
+    deps,
+    checkingDeps,
+    updatingYtdlp,
+    updateMsg,
+    setUpdateMsg,
+    updaterState,
+    handleUpdateYtdlp,
+    handleCheckAppUpdate,
+    handleStartAppUpdate,
+    handleDismissAppUpdate,
+  } = updates;
 
   useEffect(() => {
     if (session.status === "completed" || (session.status === "ready" && session.meta)) {
@@ -148,201 +160,6 @@ export default function App() {
     hasError: !!session.error,
     recentSuccess,
   });
-
-  const { setError, setNotice } = session;
-
-  // 1. Initial dependency check and default directory resolution
-  const refreshDependencies = useCallback(async () => {
-    setCheckingDeps(true);
-    try {
-      const depStatus = await invoke<DependencyStatus>("check_dependencies");
-      setDeps(depStatus);
-
-      if (!folder) {
-        const defaultDir = await invoke<string>("get_default_download_dir");
-        setFolder(defaultDir);
-        localStorage.setItem(FOLDER_STORAGE_KEY, defaultDir);
-      }
-    } catch (e) {
-      setError({
-        summary: "ไม่สามารถตรวจสอบโปรแกรม yt-dlp หรือ FFmpeg ในเครื่องได้",
-        detail: String(e),
-      });
-    } finally {
-      setCheckingDeps(false);
-    }
-  }, [folder, setError]);
-
-  useEffect(() => {
-    void refreshDependencies();
-  }, [refreshDependencies]);
-
-  // Update yt-dlp binary
-  const engineChecked = useRef(false);
-  const appUpdateLock = useRef(false);
-  const appChecked = useRef(false);
-
-  const handleUpdateYtdlp = async (background = false) => {
-    if (session.downloadLockActive || session.isDownloading || updateLock.current || session.isInspecting) return;
-    updateLock.current = !background;
-    if (!background) setUpdatingYtdlp(true);
-    setUpdateMsg(null);
-    if (!background) session.setError(null);
-    try {
-      const resultMsg = await invoke<string>("update_ytdlp", { background });
-      if (!background) setUpdateMsg(resultMsg);
-      setDeps(await invoke<DependencyStatus>("check_dependencies"));
-    } catch (e) {
-      if (!background) session.setError({
-        summary: "การอัปเดต yt-dlp ไม่สำเร็จ",
-        detail: String(e),
-      });
-    } finally {
-      if (!background) {
-        updateLock.current = false;
-        setUpdatingYtdlp(false);
-      }
-    }
-  };
-
-  useEffect(() => {
-    if (checkingDeps || !deps?.ytdlp_available || engineChecked.current || session.isDownloading || session.isInspecting || updateLock.current) return;
-    engineChecked.current = true;
-    void handleUpdateYtdlp(true);
-  }, [checkingDeps, deps, session.isDownloading, session.isInspecting]);
-
-  const handleCheckAppUpdate = useCallback(async (manual: boolean = false) => {
-    if (appUpdateLock.current) return;
-    appUpdateLock.current = true;
-    setUpdaterState(UpdaterAction.check);
-    try {
-      const info = await invoke<{
-        available: boolean;
-        current_version: string;
-        latest_version: string;
-        release_notes: string;
-        setup_url?: string;
-        portable_url?: string;
-        is_installed: boolean;
-      }>("check_app_update");
-
-      if (info.available) {
-        let dismissed: string | null = null;
-        try { dismissed = localStorage.getItem("vetch101_dismissed_update"); } catch {}
-        if (!manual && dismissed === info.latest_version) {
-          setUpdaterState(createUpdaterState());
-          return;
-        }
-        setUpdaterState(
-          UpdaterAction.available(createUpdaterState(), {
-            version: info.latest_version,
-            notes: info.release_notes,
-            setupUrl: info.setup_url,
-            portableUrl: info.portable_url,
-            isInstalled: info.is_installed,
-          })
-        );
-      } else {
-        setUpdaterState(createUpdaterState());
-        if (manual) {
-          setNotice(`คุณกำลังใช้งานเวอร์ชันล่าสุดแล้ว (${info.current_version})`);
-        }
-      }
-    } catch (e) {
-      setUpdaterState(createUpdaterState());
-      if (manual) {
-        setNotice(`ไม่สามารถตรวจหาอัปเดตได้: ${String(e)}`);
-      }
-    } finally {
-      appUpdateLock.current = false;
-    }
-  }, [setNotice]);
-
-  useEffect(() => {
-    if (checkingDeps || !deps || appChecked.current) return;
-    const timer = setTimeout(() => {
-      appChecked.current = true;
-      void handleCheckAppUpdate(false);
-    }, 2500);
-    return () => clearTimeout(timer);
-  }, [handleCheckAppUpdate, checkingDeps, deps]);
-
-  useEffect(() => {
-    const unlisten = listen<{ downloaded: number; total: number; percentage: number }>(
-      "update-progress",
-      (event) => {
-        const { percentage, downloaded, total } = event.payload;
-        setUpdaterState((prev) => UpdaterAction.progress(prev, percentage, downloaded, total));
-      }
-    );
-    return () => {
-      void unlisten.then((fn) => fn());
-    };
-  }, []);
-
-  useEffect(() => {
-    if (
-      updaterState.status !== "available" ||
-      appUpdateLock.current ||
-      updateLock.current ||
-      updatingYtdlp ||
-      session.isDownloading ||
-      session.isInspecting ||
-      session.downloadLockActive
-    ) {
-      return;
-    }
-    appUpdateLock.current = true;
-    setUpdaterState(UpdaterAction.startDownload);
-    void invoke("stage_app_update")
-      .then(() => {
-        setUpdaterState(UpdaterAction.ready);
-      })
-      .catch((e: unknown) => {
-        setUpdaterState((state) => UpdaterAction.error(state, String(e)));
-      })
-      .finally(() => {
-        appUpdateLock.current = false;
-      });
-  }, [
-    updaterState.status,
-    updatingYtdlp,
-    session.isDownloading,
-    session.isInspecting,
-    session.downloadLockActive,
-  ]);
-
-  const handleStartAppUpdate = async () => {
-    const check = canStartUpdate({
-      isDownloading: session.isDownloading || session.downloadLockActive || updateLock.current,
-      isInspecting: session.isInspecting,
-    });
-    if (!check.allowed) {
-      session.setNotice(check.reason || "ไม่สามารถอัปเดตได้ในขณะนี้");
-      return;
-    }
-    if (updaterState.status !== "ready" || appUpdateLock.current) return;
-    appUpdateLock.current = true;
-    updateLock.current = true;
-    setUpdaterState(UpdaterAction.apply);
-    try {
-      await invoke("install_app_update");
-    } catch (e) {
-      setUpdaterState(UpdaterAction.error(updaterState, String(e)));
-    } finally {
-      appUpdateLock.current = false;
-      updateLock.current = false;
-    }
-  };
-
-  const handleDismissAppUpdate = () => {
-    if ("version" in updaterState && updaterState.version) {
-      try {
-        localStorage.setItem("vetch101_dismissed_update", updaterState.version);
-      } catch {}
-    }
-    setUpdaterState(UpdaterAction.dismiss(updaterState));
-  };
 
   // Destination folder management
   const handleSelectFolder = async () => {

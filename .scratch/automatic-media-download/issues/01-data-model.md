@@ -4,10 +4,10 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `PostType` enum in `models.rs` (`Video`, `PhotoPost`)
-- [ ] `PhotoImage` struct: `index`, `preview_url`, `width?`, `height?`
-- [ ] `MediaMetadata` struct replaces `VideoMetadata` on the wire; both Rust & TS share the same shape
-- [ ] `video-input.ts` types updated; `videoInputReducer` unchanged logic
-- [ ] Existing Node tests and Rust tests still pass
+- [x] `PostType` enum in `models.rs` (`Video`, `PhotoPost`)
+- [x] `PhotoImage` struct: `index`, `preview_url`, `width?`, `height?`
+- [x] `MediaMetadata` struct replaces `VideoMetadata` on the wire; both Rust & TS share the same shape
+- [x] `video-input.ts` types updated; `videoInputReducer` unchanged logic
+- [x] Existing Node tests and Rust tests still pass

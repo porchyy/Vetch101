@@ -21,8 +21,9 @@ pub enum DownloadRequest {
     },
 }
 
-/// Unified media pipeline deep module coordinating concurrency, process supervision,
-/// and synchronous verified outcome return across all media types.
+/// Media pipeline coordinator responsible for destination pre-validation,
+/// acquiring concurrency lock on DownloadManager, and dispatching requests
+/// to the appropriate download engine (video or photo album).
 pub struct MediaPipeline {
     manager: Arc<DownloadManager>,
 }

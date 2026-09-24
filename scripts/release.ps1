@@ -43,6 +43,15 @@ try {
     }
     $dist = Join-Path $project 'dist-desktop'
     New-Item $dist -ItemType Directory -Force | Out-Null
+    $binDir = Join-Path $dist 'bin'
+    $requiredEngines = @('yt-dlp.exe', 'ffmpeg.exe', 'ffprobe.exe')
+    foreach ($engine in $requiredEngines) {
+        $enginePath = Join-Path $binDir $engine
+        if (!(Test-Path -LiteralPath $enginePath -PathType Leaf) -or (Get-Item -LiteralPath $enginePath).Length -eq 0) {
+            throw "Missing or empty required engine dependency in dist-desktop/bin: $engine"
+        }
+    }
+
     $copies = @(
         @{ Source = "$release/vetch101.exe"; Dest = "$project/Vetch101.exe" },
         @{ Source = "$release/WebView2Loader.dll"; Dest = "$project/WebView2Loader.dll" },
@@ -64,9 +73,28 @@ try {
         }
     }
     $portableZip = Join-Path $dist "Vetch101_${version}_x64-portable.zip"
-    if (Test-Path -LiteralPath (Join-Path $dist "bin")) {
-        tar -a -cf $portableZip -C $dist Vetch101.exe WebView2Loader.dll bin
+    Write-Host "Creating portable archive: $portableZip"
+    tar -a -cf $portableZip -C $dist Vetch101.exe WebView2Loader.dll bin
+    if ($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $portableZip -PathType Leaf) -or (Get-Item -LiteralPath $portableZip).Length -eq 0) {
+        throw "Failed to create portable zip archive ($LASTEXITCODE): $portableZip"
     }
+
+    # Verify portable ZIP contents
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+    $zipArchive = [System.IO.Compression.ZipFile]::OpenRead($portableZip)
+    try {
+        $entryNames = $zipArchive.Entries | ForEach-Object { $_.FullName.Replace('\', '/') }
+        $requiredEntries = @('Vetch101.exe', 'WebView2Loader.dll', 'bin/yt-dlp.exe', 'bin/ffmpeg.exe', 'bin/ffprobe.exe')
+        foreach ($req in $requiredEntries) {
+            if ($entryNames -notcontains $req) {
+                throw "Portable ZIP archive is missing required entry: $req"
+            }
+        }
+    } finally {
+        $zipArchive.Dispose()
+    }
+    Write-Host "Portable archive verified with all required binaries."
+
     & "$PSScriptRoot/test-portable.ps1"
     Write-Host "Release copied and portable launch checked. Installer runtime checks are separate. Log: $log"
 } finally {

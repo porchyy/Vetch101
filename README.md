@@ -12,7 +12,7 @@
 
 ## 📦 ดาวน์โหลดเวอร์ชันล่าสุด (Downloads)
 
-ดาวน์โหลดได้ที่หน้า [GitHub Releases v0.2.0](https://github.com/porchyy/Vetch101/releases/tag/v0.2.0):
+เวอร์ชันซอร์สโค้ดปัจจุบันคือ `0.2.2` สำหรับเวอร์ชัน release ล่าสุดที่เผยแพร่แล้ว สามารถดาวน์โหลดได้ที่หน้า [GitHub Releases v0.2.0](https://github.com/porchyy/Vetch101/releases/tag/v0.2.0):
 
 | รูปแบบการติดตั้ง | ชนิดไฟล์ | ลิงก์ดาวน์โหลดโดยตรง | รายละเอียด |
 | :--- | :---: | :---: | :--- |
@@ -67,7 +67,7 @@ Vetch101 ออกแบบมาเพื่อความง่ายสู�
 
 `build.rs` ป้องกัน GCC 16 เพิ่ม manifest ซ้ำ โดยปรับ endfile specs เฉพาะ EXE นี้; manifest ของแอปคง Common Controls v6, longPathAware และ asInvoker ไว้ Release script จะไม่คัดลอกหากยังพบ `.rsrc merge failure`
 
-สำหรับ GNU target ที่ใช้อยู่ ต้องคัดลอก `WebView2Loader.dll` จากโฟลเดอร์ release ไปวางข้าง `Vetch101.exe` ทั้งในโฟลเดอร์หลักและ `dist-desktop/` ด้วย มิฉะนั้น EXE จะเปิดไม่ขึ้น ตัวติดตั้ง NSIS/MSI รวม DLL นี้ไว้แล้ว
+สำหรับ Windows target (MSVC) ที่กำหนดใน `.cargo/config.toml` ต้องมี `WebView2Loader.dll` วางข้าง `Vetch101.exe` ทั้งในโฟลเดอร์หลักและ `dist-desktop/` ด้วย มิฉะนั้น EXE จะเปิดไม่ขึ้น ตัวติดตั้ง NSIS/MSI รวม DLL นี้ไว้แล้ว
 
 ซากเว็บเดิม (`server/`, Docker และ Render config) ถูกย้ายไป `temp/web-archive/` ซึ่งถูกละเว้นจาก Git และการบิลด์ สำรองโค้ดเดิมยังอยู่ที่ branch `backup-pre-refactor`
 
@@ -84,8 +84,8 @@ cargo test --lib
 cargo test --test metadata_network
 cd ..
 
-# ทดสอบฟังก์ชันตรวจสอบ URL ฝั่ง Frontend
-node --experimental-strip-types --test tests/video-url.test.mjs tests/video-input.test.mjs
+# ทดสอบ automated tests ฝั่ง Frontend
+npm test
 
 # ทดสอบบิลด์แอปพลิเคชัน
 npm run build

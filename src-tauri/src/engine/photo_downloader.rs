@@ -6,7 +6,6 @@ use crate::models::{DownloadOutcome, DownloadProgressPayload};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
-use tauri_plugin_notification::NotificationExt;
 use tokio::io::AsyncReadExt;
 use tokio::sync::watch;
 
@@ -110,11 +109,6 @@ pub async fn fetch_image_to_path_cancellable(
     }
 }
 
-pub async fn fetch_image_to_path(url: &str, target: &Path) -> Result<(), String> {
-    let (_tx, mut rx) = watch::channel(false);
-    fetch_image_to_path_cancellable(url, target, &mut rx).await
-}
-
 /// Converts an input image to the requested format (jpg or png) asynchronously.
 /// Preserves original JPEG bytes if input is already JPEG and target is jpg.
 pub async fn process_and_save_image_cancellable(
@@ -192,15 +186,6 @@ pub async fn process_and_save_image_cancellable(
     Ok(())
 }
 
-pub async fn process_and_save_image(
-    ffmpeg_path: Option<&str>,
-    temp_input: &Path,
-    dest_output: &Path,
-    format: &str,
-) -> Result<(), String> {
-    process_and_save_image_cancellable(ffmpeg_path, temp_input, dest_output, format, None).await
-}
-
 /// Generates an output filename that doesn't overwrite existing non-identical files.
 pub fn generate_unique_filename(dir: &Path, base_name: &str, index: u32, ext: &str) -> PathBuf {
     let initial_name = format!("{}_{:02}.{}", base_name, index, ext);
@@ -217,18 +202,6 @@ pub fn generate_unique_filename(dir: &Path, base_name: &str, index: u32, ext: &s
     }
 
     dir.join(format!("{}_{:02}_{}.{}", base_name, index, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis(), ext))
-}
-
-pub async fn run_photo_download(
-    app: AppHandle,
-    manager: Arc<DownloadManager>,
-    url: String,
-    download_dir: String,
-    format: String,
-    indices: Option<Vec<usize>>,
-) -> Result<DownloadOutcome, String> {
-    let job = manager.begin()?;
-    run_photo_download_with_job(app, manager, job, url, download_dir, format, indices).await
 }
 
 pub async fn run_photo_download_with_job(
@@ -378,13 +351,6 @@ pub async fn run_photo_download_with_job(
         },
     );
 
-    // Trigger desktop notification
-    let _ = app
-        .notification()
-        .builder()
-        .title("Vetch101 — ดาวน์โหลดรูปภาพเสร็จแล้ว")
-        .body(completion_msg)
-        .show();
 
     let primary_file_path = saved_files.first().map(|f| format!("{}\\{}", download_dir, f));
 

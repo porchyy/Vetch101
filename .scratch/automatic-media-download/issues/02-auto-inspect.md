@@ -4,10 +4,10 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `handlePaste` / clipboard "วางลิงก์" button triggers auto-inspect after `changeUrl`
-- [ ] `handleDrop` triggers auto-inspect
-- [ ] Typing triggers debounced inspect (useEffect + setTimeout 800 ms), cancels on clear
-- [ ] Inspect button / Enter key still work
-- [ ] Node tests: paste, drop, type-then-clear, change-link, out-of-order responses
+- [x] `handlePaste` / clipboard "วางลิงก์" button triggers auto-inspect after `changeUrl`
+- [x] `handleDrop` triggers auto-inspect
+- [x] Typing triggers debounced inspect (useEffect + setTimeout 800 ms), cancels on clear
+- [x] Inspect button / Enter key still work
+- [x] Node tests: paste, drop, type-then-clear, change-link, out-of-order responses

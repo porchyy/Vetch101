@@ -7,10 +7,6 @@ use std::os::windows::process::CommandExt;
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-/// Pure parser that extracts photo post metadata from TikWM / TikTok JSON response.
-/// Returns `Ok(Some(VideoMetadata))` if the response represents an image/photo post with images.
-/// Returns `Ok(None)` if the response represents a standard video post (no images),
-/// allowing the caller to fall through to yt-dlp.
 /// Pure parser that extracts photo post details from TikWM / TikTok JSON response.
 /// Returns `Ok(Some(PhotoAlbumDetails))` if the response represents an image/photo post with images.
 /// Returns `Ok(None)` if the response represents a standard video post (no images),

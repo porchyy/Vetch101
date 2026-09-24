@@ -238,7 +238,7 @@ export function sessionReducer(
 
 export interface UseDownloadSessionOptions {
   folder: string;
-  isBlocked?: boolean;
+  isBlocked?: boolean | (() => boolean);
   inputRef?: React.RefObject<HTMLInputElement | null>;
   browser?: string | null;
 }
@@ -249,6 +249,10 @@ export function useDownloadSession({
   inputRef,
   browser,
 }: UseDownloadSessionOptions) {
+  const checkBlocked = useCallback(
+    () => (typeof isBlocked === "function" ? isBlocked() : !!isBlocked),
+    [isBlocked]
+  );
   const [state, dispatch] = useReducer(sessionReducer, initialSessionState, (init) => {
     let initialFormat: ImageFormat = "jpg";
     try {
@@ -294,7 +298,7 @@ export function useDownloadSession({
   // 3. Inspect URL
   const inspectUrl = useCallback(
     async (urlToInspect?: string, overrideBrowser?: string | null) => {
-      if (downloadLock.current || isBlocked) return;
+      if (downloadLock.current || checkBlocked()) return;
       const target = (urlToInspect ?? state.url).trim();
 
       let cleanUrl = "";
@@ -361,7 +365,7 @@ export function useDownloadSession({
       !state.meta ||
       state.meta.type !== "video" ||
       downloadLock.current ||
-      isBlocked ||
+      checkBlocked() ||
       state.status !== "ready"
     ) {
       return;
@@ -438,7 +442,7 @@ export function useDownloadSession({
     } finally {
       downloadLock.current = false;
     }
-  }, [state.meta, state.selectedQualityId, state.status, state.url, state.savedFile, folder, isBlocked]);
+  }, [state.meta, state.selectedQualityId, state.status, state.url, state.savedFile, folder, browser, isBlocked]);
 
   // 6. Start Photo Album Download
   const startPhotoDownload = useCallback(async () => {
@@ -446,7 +450,7 @@ export function useDownloadSession({
       !state.meta ||
       state.meta.type !== "photo_album" ||
       downloadLock.current ||
-      isBlocked ||
+      checkBlocked() ||
       state.status !== "ready"
     ) {
       return;
@@ -703,7 +707,7 @@ export function useDownloadSession({
     status: state.status,
     progress: state.progress,
     savedFile: state.savedFile,
-    isBusy: isBlocked,
+    isBusy: checkBlocked(),
   };
 
   const actionConfig: ActionConfig = {

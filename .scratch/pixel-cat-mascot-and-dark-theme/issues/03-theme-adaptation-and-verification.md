@@ -4,10 +4,10 @@
 
 **Blocked by:** 01: Dual Theme System (Dark/Light Mode) with Header Toggle and Persistence, 02: Cozy Pixel Cat Mascot Component with 5 Lifecycle Moods & Header Toggle.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Add dark-mode outline/glow styling for the pixel cat to maintain clear contrast against dark slate surfaces.
-- [ ] Add `@media (prefers-reduced-motion: reduce)` rules for mascot animations to ensure gentle static poses.
-- [ ] Run `npx tsc --noEmit` and ensure 0 TypeScript diagnostics.
-- [ ] Run `npm test` and ensure all test suites pass.
-- [ ] Run `cargo test --lib` in `src-tauri` and ensure all Rust tests pass.
+- [x] Add dark-mode outline/glow styling for the pixel cat to maintain clear contrast against dark slate surfaces.
+- [x] Add `@media (prefers-reduced-motion: reduce)` rules for mascot animations to ensure gentle static poses.
+- [x] Run `npx tsc --noEmit` and ensure 0 TypeScript diagnostics.
+- [x] Run `npm test` and ensure all test suites pass.
+- [x] Run `cargo test --lib` in `src-tauri` and ensure all Rust tests pass.
