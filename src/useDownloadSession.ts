@@ -249,10 +249,13 @@ export function useDownloadSession({
   inputRef,
   browser,
 }: UseDownloadSessionOptions) {
-  const checkBlocked = useCallback(
-    () => (typeof isBlocked === "function" ? isBlocked() : !!isBlocked),
-    [isBlocked]
-  );
+  const checkBlocked = useCallback(() => {
+    try {
+      return typeof isBlocked === "function" ? isBlocked() : !!isBlocked;
+    } catch {
+      return false;
+    }
+  }, [isBlocked]);
   const [state, dispatch] = useReducer(sessionReducer, initialSessionState, (init) => {
     let initialFormat: ImageFormat = "jpg";
     try {

@@ -116,22 +116,27 @@ export default function App() {
 
   const [recentSuccess, setRecentSuccess] = useState(false);
 
-  const session = useDownloadSession({
-    folder,
-    isBlocked: () => updates.isUpdateBlocked,
-    inputRef,
-    browser: browserSession.enabled ? browserSession.target : null,
-  });
+  const sessionRef = useRef<ReturnType<typeof useDownloadSession> | null>(null);
 
   const updates = useAppUpdates({
     folder,
     onSetFolder: setFolder,
-    isDownloading: session.isDownloading,
-    isInspecting: session.isInspecting,
-    downloadLockActive: session.downloadLockActive,
-    onError: session.setError,
-    onNotice: session.setNotice,
+    getMediaStatus: () => ({
+      isDownloading: sessionRef.current?.isDownloading ?? false,
+      isInspecting: sessionRef.current?.isInspecting ?? false,
+      downloadLockActive: sessionRef.current?.downloadLockActive ?? false,
+    }),
+    onError: (err) => sessionRef.current?.setError(err),
+    onNotice: (notice) => sessionRef.current?.setNotice(notice),
   });
+
+  const session = useDownloadSession({
+    folder,
+    isBlocked: updates.isUpdateBlocked,
+    inputRef,
+    browser: browserSession.enabled ? browserSession.target : null,
+  });
+  sessionRef.current = session;
 
   const {
     deps,

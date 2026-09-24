@@ -12,19 +12,25 @@ import type { AppError, DependencyStatus } from "./models.ts";
 export interface UseAppUpdatesOptions {
   folder: string;
   onSetFolder: (dir: string) => void;
-  isDownloading: boolean;
-  isInspecting: boolean;
-  downloadLockActive: boolean;
-  onError: (err: AppError | null) => void;
-  onNotice: (notice: string) => void;
+  getMediaStatus?: () => {
+    isDownloading: boolean;
+    isInspecting: boolean;
+    downloadLockActive: boolean;
+  };
+  isDownloading?: boolean;
+  isInspecting?: boolean;
+  downloadLockActive?: boolean;
+  onError?: (err: AppError | null) => void;
+  onNotice?: (notice: string) => void;
 }
 
 export function useAppUpdates({
   folder,
   onSetFolder,
-  isDownloading,
-  isInspecting,
-  downloadLockActive,
+  getMediaStatus,
+  isDownloading = false,
+  isInspecting = false,
+  downloadLockActive = false,
   onError,
   onNotice,
 }: UseAppUpdatesOptions) {
@@ -57,7 +63,7 @@ export function useAppUpdates({
         } catch {}
       }
     } catch (e) {
-      onError({
+      onError?.({
         summary: "ไม่สามารถตรวจสอบโปรแกรม yt-dlp หรือ FFmpeg ในเครื่องได้",
         detail: String(e),
       });
@@ -70,21 +76,31 @@ export function useAppUpdates({
     void refreshDependencies();
   }, [refreshDependencies]);
 
+  const checkMedia = useCallback(() => {
+    if (getMediaStatus) return getMediaStatus();
+    return {
+      isDownloading,
+      isInspecting,
+      downloadLockActive,
+    };
+  }, [getMediaStatus, isDownloading, isInspecting, downloadLockActive]);
+
   // 2. Engine (yt-dlp) update
   const handleUpdateYtdlp = useCallback(
     async (background = false) => {
-      if (downloadLockActive || isDownloading || updateLock.current || isInspecting) return;
+      const media = checkMedia();
+      if (media.downloadLockActive || media.isDownloading || updateLock.current || media.isInspecting) return;
       updateLock.current = !background;
       if (!background) setUpdatingYtdlp(true);
       setUpdateMsg(null);
-      if (!background) onError(null);
+      if (!background) onError?.(null);
       try {
         const resultMsg = await invoke<string>("update_ytdlp", { background });
         if (!background) setUpdateMsg(resultMsg);
         setDeps(await invoke<DependencyStatus>("check_dependencies"));
       } catch (e) {
         if (!background) {
-          onError({
+          onError?.({
             summary: "การอัปเดต yt-dlp ไม่สำเร็จ",
             detail: String(e),
           });
@@ -96,24 +112,25 @@ export function useAppUpdates({
         }
       }
     },
-    [downloadLockActive, isDownloading, isInspecting, onError]
+    [checkMedia, onError]
   );
 
   // Background auto-check for engine update on startup
   useEffect(() => {
+    const media = checkMedia();
     if (
       checkingDeps ||
       !deps?.ytdlp_available ||
       engineChecked.current ||
-      isDownloading ||
-      isInspecting ||
+      media.isDownloading ||
+      media.isInspecting ||
       updateLock.current
     ) {
       return;
     }
     engineChecked.current = true;
     void handleUpdateYtdlp(true);
-  }, [checkingDeps, deps, isDownloading, isInspecting, handleUpdateYtdlp]);
+  }, [checkingDeps, deps, checkMedia, handleUpdateYtdlp]);
 
   // 3. App update check
   const handleCheckAppUpdate = useCallback(
@@ -153,13 +170,13 @@ export function useAppUpdates({
         } else {
           setUpdaterState(createUpdaterState());
           if (manual) {
-            onNotice(`คุณกำลังใช้งานเวอร์ชันล่าสุดแล้ว (${info.current_version})`);
+            onNotice?.(`คุณกำลังใช้งานเวอร์ชันล่าสุดแล้ว (${info.current_version})`);
           }
         }
       } catch (e) {
         setUpdaterState(createUpdaterState());
         if (manual) {
-          onNotice(`ไม่สามารถตรวจหาอัปเดตได้: ${String(e)}`);
+          onNotice?.(`ไม่สามารถตรวจหาอัปเดตได้: ${String(e)}`);
         }
       } finally {
         appUpdateLock.current = false;
@@ -194,14 +211,15 @@ export function useAppUpdates({
 
   // Stage update when available and not busy
   useEffect(() => {
+    const media = checkMedia();
     if (
       updaterState.status !== "available" ||
       appUpdateLock.current ||
       updateLock.current ||
       updatingYtdlp ||
-      isDownloading ||
-      isInspecting ||
-      downloadLockActive
+      media.isDownloading ||
+      media.isInspecting ||
+      media.downloadLockActive
     ) {
       return;
     }
@@ -220,18 +238,17 @@ export function useAppUpdates({
   }, [
     updaterState.status,
     updatingYtdlp,
-    isDownloading,
-    isInspecting,
-    downloadLockActive,
+    checkMedia,
   ]);
 
   const handleStartAppUpdate = useCallback(async () => {
+    const media = checkMedia();
     const check = canStartUpdate({
-      isDownloading: isDownloading || downloadLockActive || updateLock.current,
-      isInspecting: isInspecting,
+      isDownloading: media.isDownloading || media.downloadLockActive || updateLock.current,
+      isInspecting: media.isInspecting,
     });
     if (!check.allowed) {
-      onNotice(check.reason || "ไม่สามารถอัปเดตได้ในขณะนี้");
+      onNotice?.(check.reason || "ไม่สามารถอัปเดตได้ในขณะนี้");
       return;
     }
     if (updaterState.status !== "ready" || appUpdateLock.current) return;
@@ -246,7 +263,7 @@ export function useAppUpdates({
       appUpdateLock.current = false;
       updateLock.current = false;
     }
-  }, [isDownloading, downloadLockActive, isInspecting, updaterState, onNotice]);
+  }, [checkMedia, updaterState, onNotice]);
 
   const handleDismissAppUpdate = useCallback(() => {
     if ("version" in updaterState && updaterState.version) {
